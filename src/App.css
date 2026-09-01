@@ -663,6 +663,16 @@
   margin-bottom: 48px;
 }
 
+.home-history-scope {
+  grid-column: 1 / -1;
+  margin: 0 0 -6px;
+  color: #667268;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
 .home-stat-card {
   min-width: 0;
   padding: 24px;
@@ -2379,3 +2389,54 @@
     padding: 18px;
   }
 }
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background: #dfe8dd;
+  color: #24352a;
+}
+
+.auth-card {
+  width: min(100%, 460px);
+  padding: 36px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 18px 50px rgba(36, 53, 42, 0.12);
+  text-align: left;
+}
+
+.auth-card h1 { margin: 4px 0 20px; font-size: 2.75rem; }
+.auth-card h2 { margin-bottom: 8px; }
+.auth-form { display: grid; gap: 12px; margin-top: 24px; }
+.auth-form label, .account-card dt { font-weight: 700; }
+.auth-form input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 14px;
+  border: 1px solid #9daf9e;
+  border-radius: 10px;
+  font: inherit;
+}
+.auth-form button, .account-actions button {
+  padding: 13px 18px;
+  border: 0;
+  border-radius: 10px;
+  background: #315d42;
+  color: white;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.auth-form button:disabled, .account-actions button:disabled { opacity: 0.6; cursor: wait; }
+.auth-form .auth-secondary-button { background: #e4ede5; color: #315d42; }
+.auth-form .auth-link-button { padding: 4px; background: transparent; color: #315d42; }
+.auth-message { color: #315d42; }
+.auth-error { color: #8b2f2f; }
+.account-card dl { display: grid; gap: 18px; margin: 28px 0; }
+.account-card dl div { display: grid; gap: 4px; }
+.account-card dd { margin: 0; overflow-wrap: anywhere; }
+.account-debug-id { font-size: 0.8rem; opacity: 0.65; }
+.account-actions { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.home-account-link { display: inline-block; margin-top: 8px; color: #315d42; font-weight: 700; }

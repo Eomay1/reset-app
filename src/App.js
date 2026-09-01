@@ -52,7 +52,17 @@ export function getCravingChangeMessage(cravingBefore, cravingAfter) {
   return `Craving stayed the same at ${cravingBefore}.`;
 }
 
-function App({ environment = process.env.NODE_ENV }) {
+function readSessionLog() {
+  try {
+    const savedSessions = JSON.parse(localStorage.getItem("sessionLog") || "[]");
+    return Array.isArray(savedSessions) ? savedSessions : [];
+  } catch (error) {
+    console.error("Unable to read local RESET history:", error);
+    return [];
+  }
+}
+
+function App({ environment = process.env.NODE_ENV, currentUser = null }) {
   const isDevelopmentPreview =
     process.env.NODE_ENV === "development" ||
     (process.env.NODE_ENV === "test" && environment === "development");
@@ -73,6 +83,7 @@ function App({ environment = process.env.NODE_ENV }) {
   const [beforeScore, setBeforeScore] = useState(null);
   const [afterScore, setAfterScore] = useState(null);
   const [sessionLog, setSessionLog] = useState([]);
+  const [saveStatus, setSaveStatus] = useState("idle");
   const resetSavedRef = useRef(false);
   const resetSessionIdRef = useRef(null);
   const [selectedAction, setSelectedAction] = useState("");
@@ -121,11 +132,7 @@ useEffect(() => {
   if (savedWake) setWakeTime(savedWake);
   if (savedBlock) setBlock(savedBlock);
   if (savedConnection) setConnection(savedConnection);
-  const savedLogs = localStorage.getItem("sessionLog");
-
-if (savedLogs) {
-  setSessionLog(JSON.parse(savedLogs));
-}
+  setSessionLog(readSessionLog());
   const todayKey = new Date().toLocaleDateString("en-CA");
   const savedPlans = JSON.parse(localStorage.getItem("structurePlans") || "[]");
   if (Array.isArray(savedPlans)) {
@@ -165,21 +172,70 @@ useEffect(() => {
   }, [phase]);
 const beginCravingReset = () => {
   resetSavedRef.current = false;
-  resetSessionIdRef.current = `reset_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  resetSessionIdRef.current = crypto.randomUUID();
   setBeforeScore(null);
   setAfterScore(null);
   setAnxietyBefore(null);
   setAnxietyAfter(null);
   setSelectedAction("");
+  setSaveStatus("idle");
   setStep("before");
 };
-const saveCompletedReset = () => {
+const updateLocalSessionSyncStatus = (sessionId, syncStatus) => {
+  const updatedSessions = readSessionLog().map((session) =>
+    (session.sessionId || session.id) === sessionId
+      ? { ...session, syncStatus }
+      : session
+  );
+  localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
+  setSessionLog(updatedSessions);
+};
+const getCloudPayload = (session) => ({
+  session_id: session.sessionId || session.id,
+  craving_before: session.beforeScore,
+  craving_after: session.afterScore,
+  stress_before: session.anxietyBefore,
+  stress_after: session.anxietyAfter,
+  stress_level: session.anxietyAfter,
+  mood: session.mood || null,
+  source: "pulsewell_mvp",
+  device_id: session.deviceId,
+  client_completed_at: session.completedAt,
+  intervention_type: "craving_reset",
+  user_id: currentUser?.id ?? null
+});
+const saveCravingSession = async (session) => {
+  const { error } = await supabase
+    .from("session_results")
+    .insert([getCloudPayload(session)]);
+
+  if (error && error.code !== "23505") throw error;
+};
+const finishCloudSave = async (session, { showElevatedFallback = false } = {}) => {
+  setSaveStatus("saving");
+  setStep("saving");
+
+  try {
+    await saveCravingSession(session);
+    updateLocalSessionSyncStatus(session.sessionId, "synced");
+    setSaveStatus("synced");
+    setStep(
+      showElevatedFallback && (session.afterScore >= 7 || session.anxietyAfter >= 7)
+        ? "elevated-fallback"
+        : "done"
+    );
+  } catch (error) {
+    console.error("Supabase insert error:", error);
+    updateLocalSessionSyncStatus(session.sessionId, "failed");
+    setSaveStatus("failed");
+    setStep("done");
+  }
+};
+const saveCompletedReset = async () => {
   if (resetSavedRef.current) return false;
 
-  const resetId = resetSessionIdRef.current ||
-    `reset_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const savedSessions = JSON.parse(localStorage.getItem("sessionLog") || "[]");
-  const existingSessions = Array.isArray(savedSessions) ? savedSessions : [];
+  const resetId = resetSessionIdRef.current || crypto.randomUUID();
+  const existingSessions = readSessionLog();
 
   if (existingSessions.some((session) => session.id === resetId)) {
     resetSavedRef.current = true;
@@ -189,6 +245,7 @@ const saveCompletedReset = () => {
   const completedAt = new Date();
   const newSession = {
     id: resetId,
+    sessionId: resetId,
     date: completedAt.toLocaleString(),
     completedAt: completedAt.toISOString(),
     interventionType: "craving_reset",
@@ -207,6 +264,8 @@ const saveCompletedReset = () => {
         ? anxietyBefore - anxietyAfter
         : null,
     selectedAction,
+    deviceId: getDeviceId(),
+    syncStatus: "pending"
   };
 
   const updatedSessions = [...existingSessions, newSession];
@@ -215,8 +274,16 @@ const saveCompletedReset = () => {
   localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
   resetSavedRef.current = true;
   resetSessionIdRef.current = resetId;
-  saveCravingSession(mood || null, anxietyAfter);
+  await finishCloudSave(newSession, { showElevatedFallback: true });
   return true;
+};
+const retryCloudSave = async () => {
+  const sessionId = resetSessionIdRef.current;
+  const session = readSessionLog().find(
+    (savedSession) => (savedSession.sessionId || savedSession.id) === sessionId
+  );
+  if (!session) return;
+  await finishCloudSave({ ...session, sessionId });
 };
 const saveStructurePlan = () => {
   const dateKey = new Date().toLocaleDateString("en-CA");
@@ -250,26 +317,6 @@ const getDeviceId = () => {
 
   return deviceId;
 };
-const saveCravingSession = async (selectedMood, selectedStressLevel) => {
-  const { data, error } = await supabase
-    .from("session_results")
-    .insert([
-      {
-        craving_before: beforeScore,
-        craving_after: afterScore,
-       mood: selectedMood,
-        stress_level: selectedStressLevel,
-        source: "pulsewell_mvp",
-        device_id: getDeviceId()
-      }
-    ]);
-
-  if (error) {
-    console.error("Supabase insert error:", error);
-  } else {
-    console.log("Saved craving session:", data);
-  }
-};
 const averageReduction =
   sessionLog.length > 0
     ? (
@@ -280,7 +327,9 @@ const averageReduction =
       ).toFixed(1)
     : 0;
 const averageAnxietyReduction = calculateAverageAnxietyReduction(sessionLog);
-    const loadCloudSessions = async () => {
+    useEffect(() => {
+      if (!isAdmin) return;
+      const loadCloudSessions = async () => {
       console.log("Loading cloud sessions...");
   const { data, error } = await supabase
     .from("session_results")
@@ -294,10 +343,9 @@ const averageAnxietyReduction = calculateAverageAnxietyReduction(sessionLog);
   }
 
   setCloudSessions(data || []);
-    };
-    useEffect(() => {
-  loadCloudSessions();
-}, []);
+      };
+      loadCloudSessions();
+    }, [isAdmin]);
 const cloudTotalSessions = cloudSessions.length;
 
 const cloudAverageReduction =
@@ -1036,12 +1084,14 @@ paddingBottom: "60px",
             <p className="home-intro">
               Build structure, reset cravings, and reflect on your progress.
             </p>
+            {currentUser && <a href="/account" className="home-account-link">Account</a>}
           </header>
 
           <section
             className="home-stats-grid"
             aria-label="Progress summary"
           >
+            <p className="home-history-scope">History on this device</p>
             <div className="home-stat-card">
               <span className="home-stat-label">Total Sessions</span>
               <strong className="home-stat-value">
@@ -1141,7 +1191,6 @@ paddingBottom: "60px",
               {isAdmin && <div className="home-action-slot home-action-slot--analytics">
                 <button
                   onClick={() => {
-                    loadCloudSessions();
                     setStep("analytics");
                   }}
                   className="home-action-button"
@@ -1524,10 +1573,19 @@ onClick={() => {
         }
         onContinue={() => {
           saveCompletedReset();
-          if (afterScore >= 7 || anxietyAfter >= 7) setStep("elevated-fallback");
-          else setStep("done");
         }}
       />
+    )}
+
+    {step === "saving" && (
+      <main className="reset-complete-screen fade-in">
+        <div className="reset-complete-container" role="status">
+          <header className="reset-complete-header">
+            <h2>Saving your RESET…</h2>
+            <p>Your session is already saved on this device.</p>
+          </header>
+        </div>
+      </main>
     )}
 
     {step === "elevated-fallback" && (
@@ -2451,7 +2509,20 @@ setTimeout(() => {
         <div className="reset-complete-container">
           <header className="reset-complete-header">
             <h2>RESET Complete</h2>
-            <p>Your RESET has been recorded.</p>
+            {saveStatus === "failed" ? (
+              <div role="alert">
+                <p>Your RESET was saved on this device, but cloud sync failed.</p>
+                <button
+                  type="button"
+                  className="reset-complete-home-button"
+                  onClick={retryCloudSave}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <p>Your RESET has been recorded.</p>
+            )}
           </header>
 
           <div className="reset-complete-summary">
@@ -2473,7 +2544,7 @@ setTimeout(() => {
                 <strong className="reset-complete-value">{todayStructurePlan?.connection || "Not set"}</strong>
               </div>
 
-              {!todayStructurePlan && (
+              {!todayStructurePlan && saveStatus === "synced" && (
                 <div className="reset-complete-structure-prompt">
                   <p>Your RESET has been recorded. Strengthen the rest of your day by creating a simple Structure Plan.</p>
                   <button

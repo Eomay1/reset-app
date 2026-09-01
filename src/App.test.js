@@ -2,20 +2,42 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import App, { calculateAverageAnxietyReduction, getAnxietyChangeMessage, getCravingChangeMessage } from './App';
 import AcupressureExercise from './components/AcupressureExercise';
 import AcupressureSelection from './components/AcupressureSelection';
+import { supabase } from './supabaseClient';
 
-jest.mock('./supabaseClient', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({
-        order: async () => ({ data: [], error: null })
-      }),
-      insert: async () => ({ data: [], error: null })
-    })
-  }
-}));
+jest.mock('./supabaseClient', () => {
+  const insert = jest.fn();
+  const select = jest.fn();
+  return {
+    supabase: {
+      from: jest.fn(() => ({ select, insert })),
+      testMocks: { select, insert }
+    }
+  };
+});
+
+const mockFrom = supabase.from;
+const mockInsert = supabase.testMocks.insert;
+const mockSelect = supabase.testMocks.select;
 
 beforeEach(() => {
   localStorage.clear();
+  mockFrom.mockReset();
+  mockFrom.mockImplementation(() => ({
+    select: mockSelect,
+    insert: mockInsert
+  }));
+  mockInsert.mockReset();
+  mockInsert.mockResolvedValue({ data: [], error: null });
+  mockSelect.mockReset();
+  mockSelect.mockReturnValue({
+    order: async () => ({ data: [], error: null })
+  });
+  Object.defineProperty(global, 'crypto', {
+    configurable: true,
+    value: {
+      randomUUID: jest.fn(() => '11111111-1111-4111-8111-111111111111')
+    }
+  });
 });
 
 const settleAppEffects = async () => {
@@ -126,8 +148,24 @@ test('RESET saves immediately once and offers Structure Planner when today has n
     anxietyBefore: 6,
     anxietyAfter: 2,
     anxietyReduction: 4,
-    interventionType: 'craving_reset'
+    interventionType: 'craving_reset',
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    syncStatus: 'synced'
   }));
+  expect(mockInsert).toHaveBeenCalledTimes(1);
+  expect(mockInsert).toHaveBeenCalledWith([
+    expect.objectContaining({
+      session_id: '11111111-1111-4111-8111-111111111111',
+      craving_before: 5,
+      craving_after: 3,
+      stress_before: 6,
+      stress_after: 2,
+      stress_level: 2,
+      client_completed_at: expect.any(String),
+      intervention_type: 'craving_reset',
+      user_id: null
+    })
+  ]);
   expect(screen.getByText('Craving decreased from 5 to 3.')).toBeInTheDocument();
   expect(screen.getByText('Anxiety decreased from 6 to 2.')).toBeInTheDocument();
   expect(screen.getAllByText('Not set')).toHaveLength(3);
@@ -142,6 +180,67 @@ test('RESET saves immediately once and offers Structure Planner when today has n
   render(<App environment="production" />);
   await settleAppEffects();
   expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('1');
+});
+
+test('authenticated RESET writes use only the current authenticated user ID', async () => {
+  render(<App environment="production" currentUser={{ id: 'user-owned-uuid' }} />);
+  await settleAppEffects();
+  await completeResetFlow();
+
+  expect(mockInsert).toHaveBeenCalledWith([
+    expect.objectContaining({
+      session_id: '11111111-1111-4111-8111-111111111111',
+      user_id: 'user-owned-uuid'
+    })
+  ]);
+  expect(JSON.parse(localStorage.getItem('sessionLog'))[0].user_id).toBeUndefined();
+});
+
+test('cloud failure keeps the local RESET, reports failure, and Retry reuses its session ID', async () => {
+  const cloudError = new Error('network unavailable');
+  mockInsert
+    .mockResolvedValueOnce({ data: null, error: cloudError })
+    .mockResolvedValueOnce({ data: null, error: { code: '23505' } });
+
+  render(<App environment="production" />);
+  await settleAppEffects();
+  await completeResetFlow({
+    cravingBefore: 8,
+    cravingAfter: 3,
+    anxietyBefore: 7,
+    anxietyAfter: 4
+  });
+
+  let savedSessions = JSON.parse(localStorage.getItem('sessionLog'));
+  expect(savedSessions).toHaveLength(1);
+  expect(savedSessions[0]).toEqual(expect.objectContaining({
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    syncStatus: 'failed',
+    beforeScore: 8,
+    afterScore: 3,
+    anxietyBefore: 7,
+    anxietyAfter: 4
+  }));
+  expect(screen.getByText('Your RESET was saved on this device, but cloud sync failed.')).toBeInTheDocument();
+  expect(screen.queryByText('Your RESET has been recorded.')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await screen.findByText('Your RESET has been recorded.');
+
+  savedSessions = JSON.parse(localStorage.getItem('sessionLog'));
+  expect(savedSessions).toHaveLength(1);
+  expect(savedSessions[0].syncStatus).toBe('synced');
+  expect(mockInsert).toHaveBeenCalledTimes(2);
+  expect(mockInsert.mock.calls[0][0][0].session_id).toBe(
+    mockInsert.mock.calls[1][0][0].session_id
+  );
+  expect(mockInsert.mock.calls[1][0][0]).toEqual(expect.objectContaining({
+    craving_before: 8,
+    craving_after: 3,
+    stress_before: 7,
+    stress_after: 4,
+    stress_level: 4
+  }));
 });
 
 test('RESET results display an existing Structure Plan saved for today', async () => {
@@ -209,6 +308,15 @@ test('older RESET records without anxiety fields still load safely', async () =>
   render(<App environment="production" />);
   await settleAppEffects();
   expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('1');
+  expect(screen.getByText('History on this device')).toBeInTheDocument();
+});
+
+test('corrupted local RESET history falls back safely', async () => {
+  localStorage.setItem('sessionLog', '{not valid json');
+  render(<App environment="production" />);
+  await settleAppEffects();
+  expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('0');
+  expect(screen.getByRole('button', { name: /Craving Reset/i })).toBeInTheDocument();
 });
 
 test('development preview defaults to Consumer and toggles Analytics access', async () => {
@@ -262,6 +370,7 @@ test('production enforces Consumer mode and renders no preview or Analytics acce
   expect(screen.queryByLabelText('Development Preview')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Analytics/i })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Craving Reset/i })).toBeInTheDocument();
+  expect(mockSelect).not.toHaveBeenCalled();
 });
 
 const props = {
