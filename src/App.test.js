@@ -7,10 +7,22 @@ import { supabase } from './supabaseClient';
 jest.mock('./supabaseClient', () => {
   const insert = jest.fn();
   const select = jest.fn();
+  const historyRange = jest.fn();
+  const historyOrder = jest.fn(() => ({ range: historyRange }));
+  const historyEq = jest.fn(() => ({ order: historyOrder }));
   return {
     supabase: {
-      from: jest.fn(() => ({ select, insert })),
-      testMocks: { select, insert }
+      from: jest.fn(() => ({
+        select: (...args) => {
+          select(...args);
+          return {
+            eq: historyEq,
+            order: (...orderArgs) => select().order(...orderArgs)
+          };
+        },
+        insert
+      })),
+      testMocks: { select, insert, historyRange }
     }
   };
 });
@@ -18,12 +30,19 @@ jest.mock('./supabaseClient', () => {
 const mockFrom = supabase.from;
 const mockInsert = supabase.testMocks.insert;
 const mockSelect = supabase.testMocks.select;
+const mockHistoryRange = supabase.testMocks.historyRange;
 
 beforeEach(() => {
   localStorage.clear();
   mockFrom.mockReset();
   mockFrom.mockImplementation(() => ({
-    select: mockSelect,
+    select: (...args) => {
+      mockSelect(...args);
+      return {
+        eq: () => ({ order: () => ({ range: mockHistoryRange }) }),
+        order: (...orderArgs) => mockSelect().order(...orderArgs)
+      };
+    },
     insert: mockInsert
   }));
   mockInsert.mockReset();
@@ -32,6 +51,7 @@ beforeEach(() => {
   mockSelect.mockReturnValue({
     order: async () => ({ data: [], error: null })
   });
+  mockHistoryRange.mockReset().mockResolvedValue({ data: [], error: null });
   Object.defineProperty(global, 'crypto', {
     configurable: true,
     value: {
@@ -193,7 +213,36 @@ test('authenticated RESET writes use only the current authenticated user ID', as
       user_id: 'user-owned-uuid'
     })
   ]);
-  expect(JSON.parse(localStorage.getItem('sessionLog'))[0].user_id).toBeUndefined();
+  expect(localStorage.getItem('sessionLog')).toBeNull();
+  const authenticatedHistory = JSON.parse(
+    localStorage.getItem('pulsewell:reset-history:v2:user:user-owned-uuid')
+  );
+  expect(authenticatedHistory.sessions[0]).toEqual(expect.objectContaining({
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    syncStatus: 'synced'
+  }));
+});
+
+test('authenticated dashboard uses merged cloud and per-user local history only', async () => {
+  localStorage.setItem('sessionLog', JSON.stringify([{ id: 'legacy-device-row' }]));
+  localStorage.setItem('pulsewell:reset-history:v2:user:user-owned-uuid', JSON.stringify({
+    version: 2,
+    sessions: [{ id: 'local-failed', sessionId: 'local-failed', syncStatus: 'failed' }]
+  }));
+  mockHistoryRange.mockResolvedValue({
+    data: [{
+      session_id: 'cloud-row', craving_before: 7, craving_after: 3,
+      stress_before: 6, stress_after: 2, stress_level: 2,
+      client_completed_at: '2026-09-02T12:00:00Z', created_at: '2026-09-02T12:01:00Z',
+      intervention_type: 'craving_reset', user_id: 'user-owned-uuid'
+    }],
+    error: null
+  });
+
+  render(<App environment="production" currentUser={{ id: 'user-owned-uuid' }} />);
+  await waitFor(() => expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('2'));
+  expect(screen.getByText('Your RESET history')).toBeInTheDocument();
+  expect(JSON.parse(localStorage.getItem('sessionLog'))).toEqual([{ id: 'legacy-device-row' }]);
 });
 
 test('cloud failure keeps the local RESET, reports failure, and Retry reuses its session ID', async () => {

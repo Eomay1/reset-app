@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./supabaseClient";
+import useAuthenticatedResetHistory from "./history/useAuthenticatedResetHistory";
 import AcupressureExercise from "./components/AcupressureExercise";
 import AcupressureSelection from "./components/AcupressureSelection";
 import pc6WristCalm from "./assets/acupressure/pc6-wrist-calm.png";
@@ -82,7 +83,9 @@ function App({ environment = process.env.NODE_ENV, currentUser = null }) {
   const isAdmin = isDevelopmentPreview && previewRole === "admin";
   const [beforeScore, setBeforeScore] = useState(null);
   const [afterScore, setAfterScore] = useState(null);
-  const [sessionLog, setSessionLog] = useState([]);
+  const [legacySessionLog, setLegacySessionLog] = useState([]);
+  const authenticatedHistory = useAuthenticatedResetHistory(currentUser?.id ?? null);
+  const sessionLog = currentUser ? authenticatedHistory.sessions : legacySessionLog;
   const [saveStatus, setSaveStatus] = useState("idle");
   const resetSavedRef = useRef(false);
   const resetSessionIdRef = useRef(null);
@@ -132,7 +135,7 @@ useEffect(() => {
   if (savedWake) setWakeTime(savedWake);
   if (savedBlock) setBlock(savedBlock);
   if (savedConnection) setConnection(savedConnection);
-  setSessionLog(readSessionLog());
+  setLegacySessionLog(readSessionLog());
   const todayKey = new Date().toLocaleDateString("en-CA");
   const savedPlans = JSON.parse(localStorage.getItem("structurePlans") || "[]");
   if (Array.isArray(savedPlans)) {
@@ -188,7 +191,7 @@ const updateLocalSessionSyncStatus = (sessionId, syncStatus) => {
       : session
   );
   localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
-  setSessionLog(updatedSessions);
+  setLegacySessionLog(updatedSessions);
 };
 const getCloudPayload = (session) => ({
   session_id: session.sessionId || session.id,
@@ -216,8 +219,12 @@ const finishCloudSave = async (session, { showElevatedFallback = false } = {}) =
   setStep("saving");
 
   try {
-    await saveCravingSession(session);
-    updateLocalSessionSyncStatus(session.sessionId, "synced");
+    if (currentUser) {
+      await authenticatedHistory.syncSession(session);
+    } else {
+      await saveCravingSession(session);
+      updateLocalSessionSyncStatus(session.sessionId, "synced");
+    }
     setSaveStatus("synced");
     setStep(
       showElevatedFallback && (session.afterScore >= 7 || session.anxietyAfter >= 7)
@@ -226,7 +233,7 @@ const finishCloudSave = async (session, { showElevatedFallback = false } = {}) =
     );
   } catch (error) {
     console.error("Supabase insert error:", error);
-    updateLocalSessionSyncStatus(session.sessionId, "failed");
+    if (!currentUser) updateLocalSessionSyncStatus(session.sessionId, "failed");
     setSaveStatus("failed");
     setStep("done");
   }
@@ -235,7 +242,9 @@ const saveCompletedReset = async () => {
   if (resetSavedRef.current) return false;
 
   const resetId = resetSessionIdRef.current || crypto.randomUUID();
-  const existingSessions = readSessionLog();
+  const existingSessions = currentUser
+    ? authenticatedHistory.sessions
+    : readSessionLog();
 
   if (existingSessions.some((session) => session.id === resetId)) {
     resetSavedRef.current = true;
@@ -270,8 +279,12 @@ const saveCompletedReset = async () => {
 
   const updatedSessions = [...existingSessions, newSession];
 
-  setSessionLog(updatedSessions);
-  localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
+  if (currentUser) {
+    authenticatedHistory.savePendingSession(newSession);
+  } else {
+    setLegacySessionLog(updatedSessions);
+    localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
+  }
   resetSavedRef.current = true;
   resetSessionIdRef.current = resetId;
   await finishCloudSave(newSession, { showElevatedFallback: true });
@@ -279,6 +292,21 @@ const saveCompletedReset = async () => {
 };
 const retryCloudSave = async () => {
   const sessionId = resetSessionIdRef.current;
+  if (currentUser) {
+    if (!sessionId) return;
+    setSaveStatus("saving");
+    setStep("saving");
+    try {
+      await authenticatedHistory.retrySession(sessionId);
+      setSaveStatus("synced");
+      setStep("done");
+    } catch (error) {
+      console.error("Supabase insert error:", error);
+      setSaveStatus("failed");
+      setStep("done");
+    }
+    return;
+  }
   const session = readSessionLog().find(
     (savedSession) => (savedSession.sessionId || savedSession.id) === sessionId
   );
@@ -1091,7 +1119,9 @@ paddingBottom: "60px",
             className="home-stats-grid"
             aria-label="Progress summary"
           >
-            <p className="home-history-scope">History on this device</p>
+            <p className="home-history-scope">
+              {currentUser ? "Your RESET history" : "History on this device"}
+            </p>
             <div className="home-stat-card">
               <span className="home-stat-label">Total Sessions</span>
               <strong className="home-stat-value">
