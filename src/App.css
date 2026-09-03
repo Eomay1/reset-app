@@ -2440,3 +2440,6 @@
 .account-debug-id { font-size: 0.8rem; opacity: 0.65; }
 .account-actions { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .home-account-link { display: inline-block; margin-top: 8px; color: #315d42; font-weight: 700; }
+
+.history-list { display: grid; gap: 12px; padding-left: 22px; text-align: left; }
+.history-list li { display: grid; gap: 4px; }

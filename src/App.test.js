@@ -139,6 +139,31 @@ const completeResetFlow = async ({ anxietyBefore = 6, anxietyAfter = 2, cravingB
   await screen.findByRole('heading', { name: 'RESET Complete' });
 };
 
+test('RESET pre- and post-anxiety inputs allow 1 through 10 but not 0', async () => {
+  render(<App environment="production" />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+  fireEvent.click(screen.getByRole('button', { name: '5' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+  expect(screen.getByRole('heading', { name: /How anxious do you feel right now/i })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '0' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '10' })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: '1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue RESET' }));
+  fireEvent.click(screen.getByRole('button', { name: /Continue Move on/i }));
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+
+  expect(screen.getByText(/after RESET/i)).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '0' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '1' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '10' })).toBeInTheDocument();
+});
+
 test('final summary uses standardized craving no-change and increase wording', async () => {
   const first = render(<App environment="production" />);
   await settleAppEffects();
@@ -243,6 +268,44 @@ test('authenticated dashboard uses merged cloud and per-user local history only'
   await waitFor(() => expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('2'));
   expect(screen.getByText('Your RESET history')).toBeInTheDocument();
   expect(JSON.parse(localStorage.getItem('sessionLog'))).toEqual([{ id: 'legacy-device-row' }]);
+});
+
+test('fresh entitlement blocks starting a RESET after access expires', async () => {
+  const refreshEntitlement = jest.fn().mockResolvedValue({
+    effectiveStatus: 'trial_expired',
+    hasAccess: false
+  });
+  const onAccessDenied = jest.fn();
+  render(
+    <App
+      environment="production"
+      currentUser={{ id: 'user-owned-uuid' }}
+      refreshEntitlement={refreshEntitlement}
+      onAccessDenied={onAccessDenied}
+    />
+  );
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+
+  await waitFor(() => expect(onAccessDenied).toHaveBeenCalledTimes(1));
+  expect(refreshEntitlement).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('heading', { name: /How strong is your craving/i })).not.toBeInTheDocument();
+});
+
+test('pre-RESET entitlement failure shows a retryable error without starting', async () => {
+  const refreshEntitlement = jest.fn().mockRejectedValue(new Error('offline'));
+  render(
+    <App
+      environment="production"
+      currentUser={{ id: 'user-owned-uuid' }}
+      refreshEntitlement={refreshEntitlement}
+    />
+  );
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('couldn’t verify your RESET access');
+  expect(screen.getByRole('button', { name: 'Retry access check' })).toBeInTheDocument();
 });
 
 test('cloud failure keeps the local RESET, reports failure, and Retry reuses its session ID', async () => {

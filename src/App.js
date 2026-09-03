@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./supabaseClient";
 import useAuthenticatedResetHistory from "./history/useAuthenticatedResetHistory";
+import { toCloudPayload } from "./history/sessionResultsRepository";
 import AcupressureExercise from "./components/AcupressureExercise";
 import AcupressureSelection from "./components/AcupressureSelection";
 import pc6WristCalm from "./assets/acupressure/pc6-wrist-calm.png";
@@ -63,7 +64,12 @@ function readSessionLog() {
   }
 }
 
-function App({ environment = process.env.NODE_ENV, currentUser = null }) {
+function App({
+  environment = process.env.NODE_ENV,
+  currentUser = null,
+  refreshEntitlement = null,
+  onAccessDenied = null
+}) {
   const isDevelopmentPreview =
     process.env.NODE_ENV === "development" ||
     (process.env.NODE_ENV === "test" && environment === "development");
@@ -87,6 +93,8 @@ function App({ environment = process.env.NODE_ENV, currentUser = null }) {
   const authenticatedHistory = useAuthenticatedResetHistory(currentUser?.id ?? null);
   const sessionLog = currentUser ? authenticatedHistory.sessions : legacySessionLog;
   const [saveStatus, setSaveStatus] = useState("idle");
+  const [checkingAccess, setCheckingAccess] = useState(false);
+  const [accessCheckError, setAccessCheckError] = useState(null);
   const resetSavedRef = useRef(false);
   const resetSessionIdRef = useRef(null);
   const [selectedAction, setSelectedAction] = useState("");
@@ -173,7 +181,7 @@ useEffect(() => {
 
     return () => clearInterval(interval);
   }, [phase]);
-const beginCravingReset = () => {
+const startCravingReset = () => {
   resetSavedRef.current = false;
   resetSessionIdRef.current = crypto.randomUUID();
   setBeforeScore(null);
@@ -184,6 +192,28 @@ const beginCravingReset = () => {
   setSaveStatus("idle");
   setStep("before");
 };
+const beginCravingReset = async () => {
+  setAccessCheckError(null);
+  if (!currentUser || !refreshEntitlement) {
+    startCravingReset();
+    return;
+  }
+
+  setCheckingAccess(true);
+  try {
+    const freshEntitlement = await refreshEntitlement();
+    if (!freshEntitlement) return;
+    if (!freshEntitlement.hasAccess) {
+      if (onAccessDenied) onAccessDenied(freshEntitlement);
+      return;
+    }
+    startCravingReset();
+  } catch (entitlementError) {
+    setAccessCheckError(entitlementError);
+  } finally {
+    setCheckingAccess(false);
+  }
+};
 const updateLocalSessionSyncStatus = (sessionId, syncStatus) => {
   const updatedSessions = readSessionLog().map((session) =>
     (session.sessionId || session.id) === sessionId
@@ -193,24 +223,10 @@ const updateLocalSessionSyncStatus = (sessionId, syncStatus) => {
   localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
   setLegacySessionLog(updatedSessions);
 };
-const getCloudPayload = (session) => ({
-  session_id: session.sessionId || session.id,
-  craving_before: session.beforeScore,
-  craving_after: session.afterScore,
-  stress_before: session.anxietyBefore,
-  stress_after: session.anxietyAfter,
-  stress_level: session.anxietyAfter,
-  mood: session.mood || null,
-  source: "pulsewell_mvp",
-  device_id: session.deviceId,
-  client_completed_at: session.completedAt,
-  intervention_type: "craving_reset",
-  user_id: currentUser?.id ?? null
-});
 const saveCravingSession = async (session) => {
   const { error } = await supabase
     .from("session_results")
-    .insert([getCloudPayload(session)]);
+    .insert([toCloudPayload(session, currentUser?.id ?? null)]);
 
   if (error && error.code !== "23505") throw error;
 };
@@ -1163,13 +1179,23 @@ paddingBottom: "60px",
               <p>Choose an action to continue your recovery plan.</p>
             </div>
 
+            {accessCheckError && (
+              <div role="alert" className="auth-error">
+                <p>We couldn’t verify your RESET access. Please try again.</p>
+                <button type="button" onClick={beginCravingReset}>Retry access check</button>
+              </div>
+            )}
+
             <div className="home-actions-grid">
               <div className="home-action-slot">
                 <button
                   onClick={beginCravingReset}
+                  disabled={checkingAccess}
                   className="home-action-button"
                 >
-                  <span className="home-action-title">Craving Reset</span>
+                  <span className="home-action-title">
+                    {checkingAccess ? "Checking access…" : "Craving Reset"}
+                  </span>
                   <span className="home-action-description">
                     Pause and work through an urge
                   </span>
@@ -1341,6 +1367,7 @@ paddingBottom: "60px",
     title="How anxious do you feel right now?"
     description="Choose the number that best reflects your anxiety before RESET."
     value={anxietyBefore}
+    min={1}
     onChange={setAnxietyBefore}
     onContinue={() => setStep("reset")}
   />
@@ -1592,6 +1619,7 @@ onClick={() => {
         title="How anxious do you feel right now?"
         description="Choose the number that best reflects your anxiety after RESET."
         value={anxietyAfter}
+        min={1}
         onChange={setAnxietyAfter}
         feedback={getAnxietyChangeMessage(anxietyBefore, anxietyAfter)}
         feedbackTone={
@@ -2686,13 +2714,13 @@ setTimeout(() => {
 </div>
 );
 }
-function RatingScreen({ title, description, value, onChange, onContinue, feedback, feedbackTone = "unchanged" }) {
+function RatingScreen({ title, description, value, onChange, onContinue, feedback, feedbackTone = "unchanged", min = 0 }) {
   return (
     <main className="craving-after-screen">
       <div className="craving-after-container">
         <header className="craving-after-header"><h2>{title}</h2><p>{description}</p></header>
         <div className="mood-stress-scale">
-          {[0,1,2,3,4,5,6,7,8,9,10].map((number) => (
+          {Array.from({ length: 11 - min }, (_, index) => index + min).map((number) => (
             <button type="button" key={number} onClick={() => onChange(number)} className={`mood-stress-button ${value === number ? "mood-stress-button--selected" : ""}`} aria-pressed={value === number}>{number}</button>
           ))}
         </div>

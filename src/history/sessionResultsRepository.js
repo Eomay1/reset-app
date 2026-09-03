@@ -8,14 +8,24 @@ const SELECT_COLUMNS = [
 
 const PAGE_SIZE = 1000;
 
+export function normalizeStressValue(value, fieldName = "stress") {
+  if (value === null || value === undefined || value === 0) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 10) {
+    throw new TypeError(`${fieldName} must be null or an integer from 1 to 10.`);
+  }
+  return value;
+}
+
 export function toCloudPayload(session, userId) {
+  const stressBefore = normalizeStressValue(session.anxietyBefore, "stress_before");
+  const stressAfter = normalizeStressValue(session.anxietyAfter, "stress_after");
   return {
     session_id: session.sessionId || session.id,
     craving_before: session.beforeScore,
     craving_after: session.afterScore,
-    stress_before: session.anxietyBefore,
-    stress_after: session.anxietyAfter,
-    stress_level: session.anxietyAfter,
+    stress_before: stressBefore,
+    stress_after: stressAfter,
+    stress_level: stressAfter,
     mood: session.mood || null,
     source: "pulsewell_mvp",
     device_id: session.deviceId,

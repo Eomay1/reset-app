@@ -1,5 +1,10 @@
 import { supabase } from "../supabaseClient";
-import { fetchUserSessions, insertUserSession, toCloudPayload } from "./sessionResultsRepository";
+import {
+  fetchUserSessions,
+  insertUserSession,
+  normalizeStressValue,
+  toCloudPayload
+} from "./sessionResultsRepository";
 
 jest.mock("../supabaseClient", () => ({ supabase: { from: jest.fn() } }));
 
@@ -51,4 +56,46 @@ test("does not accept an unconfirmed duplicate as a successful sync", async () =
   supabase.from.mockReturnValue({ insert, select });
 
   await expect(insertUserSession("user-a", { sessionId: "unknown" })).rejects.toBe(duplicate);
+});
+
+test("normalizes database-compatible stress values centrally", () => {
+  expect(normalizeStressValue(1)).toBe(1);
+  expect(normalizeStressValue(10)).toBe(10);
+  expect(normalizeStressValue(null)).toBeNull();
+  expect(normalizeStressValue(undefined)).toBeNull();
+  expect(normalizeStressValue(0)).toBeNull();
+
+  ["5", Number.NaN, 1.5, -1, 11].forEach((value) => {
+    expect(() => normalizeStressValue(value)).toThrow(/integer from 1 to 10/);
+  });
+});
+
+test("legacy zero stress retries with null fields and the original session ID", async () => {
+  const insert = jest.fn().mockResolvedValue({ error: null });
+  supabase.from.mockReturnValue({ insert });
+
+  await insertUserSession("user-a", {
+    sessionId: "original-session-id",
+    anxietyBefore: 0,
+    anxietyAfter: 0
+  });
+
+  expect(insert).toHaveBeenCalledWith([expect.objectContaining({
+    session_id: "original-session-id",
+    stress_before: null,
+    stress_after: null,
+    stress_level: null
+  })]);
+});
+
+test("invalid stress fails before Supabase insert is called", async () => {
+  const insert = jest.fn();
+  supabase.from.mockReturnValue({ insert });
+
+  await expect(insertUserSession("user-a", {
+    sessionId: "invalid-stress",
+    anxietyBefore: "5",
+    anxietyAfter: 4
+  })).rejects.toThrow(/stress_before/);
+  expect(insert).not.toHaveBeenCalled();
 });
