@@ -121,7 +121,7 @@ function App({
  const [todayStructurePlan, setTodayStructurePlan] = useState(null);
  const [customAction1, setCustomAction1] = useState("");
  const [customAction2, setCustomAction2] = useState("");
- const [selectedChannel, setSelectedChannel] = useState("");
+ const [, setSelectedChannel] = useState("");
  const [nightlyReviewCount, setNightlyReviewCount] = useState(
   JSON.parse(localStorage.getItem("nightlyReview"))?.length || 0
 );
@@ -391,29 +391,6 @@ const averageAnxietyReduction = calculateAverageAnxietyReduction(sessionLog);
       loadCloudSessions();
     }, [isAdmin]);
 const cloudTotalSessions = cloudSessions.length;
-
-const cloudAverageReduction =
-  cloudSessions.length > 0
-    ? (
-        cloudSessions.reduce(
-          (sum, session) =>
-            sum +
-            ((session.craving_before || 0) -
-             (session.craving_after || 0)),
-          0
-        ) / cloudSessions.length
-      ).toFixed(1)
-    : 0;
-const cloudSuccessfulSessions = cloudSessions.filter(
-  (session) => session.craving_after < session.craving_before
-).length;
-
-const cloudSuccessRate =
-  cloudSessions.length > 0
-    ? Math.round(
-        (cloudSuccessfulSessions / cloudSessions.length) * 100
-      )
-    : 0;
 
 const cloudUserOutcomeTotals = cloudSessions.reduce((acc, session) => {
   if (session.device_id == null) return acc;
