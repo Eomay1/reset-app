@@ -1,7 +1,7 @@
 [build]
-  command = "npm run build"
+  command = "npm run build && node -e \"const fs = require('node:fs'); const dest = '.netlify/functions-generated'; fs.rmSync(dest, { recursive: true, force: true }); fs.cpSync('netlify/functions', dest, { recursive: true, filter: src => !src.endsWith('.test.js') });\""
   publish = "build"
-  functions = "netlify/functions"
+  functions = ".netlify/functions-generated"
 
 [[redirects]]
   from = "/*"
