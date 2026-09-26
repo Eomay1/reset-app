@@ -8,7 +8,7 @@ function requiredEnvironment(name, env = process.env) {
 
 function createAuthClient(env = process.env) {
   const url = requiredEnvironment("SUPABASE_URL", env);
-  const publishableKey = env.SUPABASE_PUBLISHABLE_KEY || env.SUPABASE_ANON_KEY;
+  const publishableKey = env.SUPABASE_ANON_KEY || env.SUPABASE_PUBLISHABLE_KEY;
   if (!publishableKey) {
     throw new Error("Missing required environment variable: SUPABASE_PUBLISHABLE_KEY");
   }
