@@ -6,6 +6,12 @@ const ENV = {
   STRIPE_ANNUAL_PRICE_ID: "price_annual"
 };
 
+let authLog;
+beforeEach(() => {
+  authLog = jest.spyOn(console, "info").mockImplementation(() => {});
+});
+afterEach(() => jest.restoreAllMocks());
+
 function adminClient(account = {
   stripe_customer_id: null,
   entitlement_status: "trial",
@@ -48,6 +54,7 @@ test.each([
 
   expect(response.statusCode).toBe(200);
   expect(JSON.parse(response.body)).toEqual({ url: "https://checkout.stripe.com/c/pay/test" });
+  expect(deps.authClient.auth.getUser).toHaveBeenCalledWith("valid-token");
   expect(deps.create).toHaveBeenCalledWith(expect.objectContaining({
     mode: "subscription",
     line_items: [{ price: expectedPrice, quantity: 1 }],
@@ -70,6 +77,32 @@ test("rejects an unauthenticated checkout request", async () => {
   const deps = dependencies();
   const response = await buildHandler(deps)(request("monthly", null));
   expect(response.statusCode).toBe(401);
+  expect(deps.authClient.auth.getUser).not.toHaveBeenCalled();
+  expect(authLog).toHaveBeenCalledWith("Checkout authentication: bearer token", {
+    tokenPresent: false, tokenLength: 0
+  });
+  expect(deps.create).not.toHaveBeenCalled();
+});
+
+test("logs only authentication diagnostics and preserves the rejected-token response", async () => {
+  const deps = dependencies();
+  deps.authClient.auth.getUser.mockResolvedValue({
+    data: { user: null },
+    error: { message: "JWT expired", status: 401, secret: "must-not-be-logged" }
+  });
+  const response = await buildHandler(deps)(request("monthly", "private-access-token"));
+
+  expect(response.statusCode).toBe(401);
+  expect(JSON.parse(response.body)).toEqual({ error: "Invalid or expired authentication." });
+  expect(deps.authClient.auth.getUser).toHaveBeenCalledWith("private-access-token");
+  expect(authLog.mock.calls).toEqual([
+    ["Checkout authentication: bearer token", { tokenPresent: true, tokenLength: 20 }],
+    ["Checkout authentication: Supabase getUser", {
+      userPresent: false, errorMessage: "JWT expired", errorStatus: 401
+    }]
+  ]);
+  expect(JSON.stringify(authLog.mock.calls)).not.toMatch(/private-access-token|must-not-be-logged/);
+  expect(deps.adminClient.from).not.toHaveBeenCalled();
   expect(deps.create).not.toHaveBeenCalled();
 });
 

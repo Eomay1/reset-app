@@ -33,9 +33,18 @@ function bearerToken(headers = {}) {
 
 async function requireAuthenticatedUser(event, authClient) {
   const token = bearerToken(event.headers);
+  console.info("Checkout authentication: bearer token", {
+    tokenPresent: Boolean(token),
+    tokenLength: token?.length || 0
+  });
   if (!token) return { user: null, error: "Authentication required." };
 
   const { data, error } = await authClient.auth.getUser(token);
+  console.info("Checkout authentication: Supabase getUser", {
+    userPresent: Boolean(data?.user),
+    errorMessage: error?.message || null,
+    errorStatus: error?.status || null
+  });
   if (error || !data?.user) return { user: null, error: "Invalid or expired authentication." };
   return { user: data.user, error: null };
 }
