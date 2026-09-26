@@ -2,6 +2,8 @@ const { buildHandler } = require("./stripe-webhook");
 
 const ENV = { STRIPE_WEBHOOK_SECRET: "whsec_test" };
 
+afterEach(() => jest.restoreAllMocks());
+
 function stripeEvent(type, object, overrides = {}) {
   return {
     id: `evt_${type}`,
@@ -99,4 +101,48 @@ test("rejects an invalid Stripe signature before any database write", async () =
   expect(response.statusCode).toBe(400);
   expect(deps.rpc).not.toHaveBeenCalled();
   console.error.mockRestore();
+});
+
+test("logs database failure diagnostics without the error details or webhook data", async () => {
+  const log = jest.spyOn(console, "error").mockImplementation(() => {});
+  const deps = dependencies(stripeEvent("checkout.session.completed", { subscription: "sub_123" }), subscription());
+  deps.rpc.mockResolvedValue({
+    error: { message: "permission denied for table consumer_accounts", code: "42501", details: request.body },
+    status: 403
+  });
+  const response = await buildHandler(deps)(request);
+  expect(response.statusCode).toBe(400);
+  expect(JSON.parse(response.body)).toEqual({ error: "Webhook processing failed." });
+  expect(log.mock.calls).toEqual([["Stripe webhook processing failed", {
+    stage: "subscription_rpc", message: "permission denied for table consumer_accounts", code: "42501", status: 403
+  }]]);
+});
+
+test("redacts sensitive values from Stripe retrieval errors", async () => {
+  const log = jest.spyOn(console, "error").mockImplementation(() => {});
+  const deps = dependencies(stripeEvent("checkout.session.completed", { subscription: "sub_123" }));
+  deps.stripe.subscriptions.retrieve.mockRejectedValue({
+    message: "No such subscription: 'sub_123' cus_123 person@example.com whsec_test https://example.com/private eyJsecret.token.value",
+    code: "resource_missing", statusCode: 404, raw: request
+  });
+  const response = await buildHandler(deps)(request);
+  expect(response.statusCode).toBe(400);
+  expect(log.mock.calls).toEqual([["Stripe webhook processing failed", {
+    stage: "subscription_lookup",
+    message: "No such subscription: [redacted] [redacted] [redacted] [redacted] [redacted] [redacted]",
+    code: "resource_missing", status: 404
+  }]]);
+  expect(deps.rpc).not.toHaveBeenCalled();
+});
+
+test("does not log signature error messages that may contain the raw payload", async () => {
+  const log = jest.spyOn(console, "error").mockImplementation(() => {});
+  const deps = dependencies(null);
+  deps.stripe.webhooks.constructEvent.mockImplementation(() => { throw new Error(request.body + request.headers["stripe-signature"]); });
+  const response = await buildHandler(deps)(request);
+  expect(response.statusCode).toBe(400);
+  expect(log.mock.calls[0][1].stage).toBe("signature_verification");
+  expect(JSON.stringify(log.mock.calls)).not.toContain(request.body);
+  expect(JSON.stringify(log.mock.calls)).not.toContain(request.headers["stripe-signature"]);
+  expect(deps.rpc).not.toHaveBeenCalled();
 });
