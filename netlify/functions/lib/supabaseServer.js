@@ -12,6 +12,7 @@ function createAuthClient(env = process.env) {
   if (!publishableKey) {
     throw new Error("Missing required environment variable: SUPABASE_PUBLISHABLE_KEY");
   }
+  console.info("Supabase server key source:", env.SUPABASE_ANON_KEY ? "anon" : "publishable");
   return createClient(url, publishableKey, {
     auth: { autoRefreshToken: false, persistSession: false }
   });
