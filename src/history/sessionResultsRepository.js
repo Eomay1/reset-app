@@ -1,9 +1,12 @@
+import { normalizeActiveDuration, normalizeGuidedCompletion } from "./exerciseMetadata";
+import { interventionType } from "../interventions/interventionTypes";
 import { supabase } from "../supabaseClient";
 
 const SELECT_COLUMNS = [
   "session_id", "craving_before", "craving_after", "stress_before",
   "stress_after", "stress_level", "mood", "device_id",
-  "client_completed_at", "created_at", "intervention_type", "user_id"
+  "client_completed_at", "created_at", "intervention_type", "user_id",
+  "active_duration_seconds", "guided_sequence_completed"
 ].join(",");
 
 const PAGE_SIZE = 1000;
@@ -30,8 +33,10 @@ export function toCloudPayload(session, userId) {
     source: "pulsewell_mvp",
     device_id: session.deviceId,
     client_completed_at: session.completedAt,
-    intervention_type: "craving_reset",
-    user_id: userId
+    intervention_type: interventionType(session.interventionType),
+    user_id: userId,
+    active_duration_seconds: normalizeActiveDuration(session.activeDurationSeconds),
+    guided_sequence_completed: normalizeGuidedCompletion(session.guidedSequenceCompleted)
   };
 }
 
@@ -52,9 +57,22 @@ export async function fetchUserSessions(userId) {
 }
 
 export async function insertUserSession(userId, session) {
+  if (!userId) throw new Error("Authentication is required to save RESET history.");
+  if (session.ownerUserId && session.ownerUserId !== userId) {
+    throw new Error("Sign in as the original user to save this RESET session.");
+  }
+  const payload = toCloudPayload(session, userId);
+  const { data, error: authError } = await supabase.auth.getSession();
+  if (authError) throw authError;
+  if (!data.session?.access_token || data.session.user?.id !== userId) {
+    throw new Error("Sign in as the original user to save this RESET session.");
+  }
+  if (Number.isFinite(data.session.expires_at) && data.session.expires_at <= Date.now() / 1000) {
+    throw new Error("Authentication expired. Sign in as the original user to retry.");
+  }
   const { error } = await supabase
     .from("session_results")
-    .insert([toCloudPayload(session, userId)]);
+    .insert([payload]);
   if (!error) return;
   if (error.code !== "23505") throw error;
 

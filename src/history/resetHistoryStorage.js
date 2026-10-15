@@ -25,12 +25,15 @@ export function writeUserHistory(userId, sessions) {
 }
 
 export function upsertUserSession(userId, session) {
+  if (!userId || (session.ownerUserId && session.ownerUserId !== userId)) {
+    throw new Error("The RESET session must remain with its original user.");
+  }
   const sessionId = session?.sessionId || session?.id;
   if (!sessionId) throw new Error("A session ID is required to save RESET history.");
   const existing = readUserHistory(userId);
   const updated = [
     ...existing.filter((item) => (item.sessionId || item.id) !== sessionId),
-    { ...session, id: sessionId, sessionId }
+    { ...session, ownerUserId: userId, id: sessionId, sessionId }
   ];
   writeUserHistory(userId, updated);
   return updated;

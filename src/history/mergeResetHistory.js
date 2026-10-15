@@ -1,3 +1,5 @@
+import { mergeExerciseMetadata } from "./exerciseMetadata";
+
 export function getSessionId(session) {
   return session?.sessionId || session?.id || session?.session_id || null;
 }
@@ -17,6 +19,10 @@ export function fromCloudSession(row) {
     completedAt,
     createdAt: row.created_at || null,
     interventionType: row.intervention_type,
+    ...mergeExerciseMetadata({}, {
+      activeDurationSeconds: row.active_duration_seconds,
+      guidedSequenceCompleted: row.guided_sequence_completed
+    }),
     beforeScore,
     afterScore,
     reduction: Number.isFinite(beforeScore) && Number.isFinite(afterScore)
@@ -54,7 +60,7 @@ export function mergeResetHistory(localSessions, cloudRows) {
     if (!cloudSession) return;
     const localSession = merged.get(cloudSession.sessionId);
     // Local-only metadata is retained; canonical database fields overwrite it.
-    merged.set(cloudSession.sessionId, { ...localSession, ...cloudSession });
+    merged.set(cloudSession.sessionId, { ...localSession, ...cloudSession, ...mergeExerciseMetadata(localSession, cloudSession) });
   });
 
   return [...merged.values()].sort((left, right) => {

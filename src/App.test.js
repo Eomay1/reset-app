@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App, { calculateAverageAnxietyReduction, getAnxietyChangeMessage, getCravingChangeMessage } from './App';
 import AcupressureExercise from './components/AcupressureExercise';
 import AcupressureSelection from './components/AcupressureSelection';
@@ -12,6 +12,7 @@ jest.mock('./supabaseClient', () => {
   const historyEq = jest.fn(() => ({ order: historyOrder }));
   return {
     supabase: {
+      auth: { getSession: jest.fn() },
       from: jest.fn(() => ({
         select: (...args) => {
           select(...args);
@@ -34,6 +35,7 @@ const mockHistoryRange = supabase.testMocks.historyRange;
 
 beforeEach(() => {
   localStorage.clear();
+  supabase.auth.getSession.mockReset().mockResolvedValue({ data: { session: { user: { id: "user-owned-uuid" }, access_token: "mock-token" } }, error: null });
   mockFrom.mockReset();
   mockFrom.mockImplementation(() => ({
     select: (...args) => {
@@ -97,7 +99,7 @@ test('formats standardized craving and anxiety outcome wording', () => {
 });
 
 test('homepage displays the anxiety average and an em dash when data is unavailable', async () => {
-  const { unmount } = render(<App environment="production" />);
+  const { unmount } = render(<App environment="test-review" />);
   await settleAppEffects();
   expect(screen.getByText('Average Anxiety Reduction').parentElement).toHaveTextContent('—');
   unmount();
@@ -108,13 +110,13 @@ test('homepage displays the anxiety average and an em dash when data is unavaila
     { id: 'one', interventionType: 'craving_reset', anxietyBefore: 9, anxietyAfter: 5 },
     { id: 'old-record', beforeScore: 7, afterScore: 3 }
   ]));
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   expect(screen.getByText('Average Anxiety Reduction').parentElement).toHaveTextContent('1.5');
 });
 
 const advanceToPostResetAnxiety = async ({ anxietyBefore = 6, cravingBefore = 5, cravingAfter = 3 } = {}) => {
-  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
   fireEvent.click(screen.getByRole('button', { name: String(cravingBefore) }));
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
   expect(screen.getByRole('heading', { name: /How anxious do you feel right now/i })).toBeInTheDocument();
@@ -140,9 +142,9 @@ const completeResetFlow = async ({ anxietyBefore = 6, anxietyAfter = 2, cravingB
 };
 
 test('RESET pre- and post-anxiety inputs allow 1 through 10 but not 0', async () => {
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
-  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
   fireEvent.click(screen.getByRole('button', { name: '5' }));
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
@@ -165,21 +167,21 @@ test('RESET pre- and post-anxiety inputs allow 1 through 10 but not 0', async ()
 });
 
 test('final summary uses standardized craving no-change and increase wording', async () => {
-  const first = render(<App environment="production" />);
+  const first = render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow({ cravingBefore: 4, cravingAfter: 4 });
   expect(screen.getByText('Craving stayed the same at 4.')).toBeInTheDocument();
   first.unmount();
 
   localStorage.clear();
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow({ cravingBefore: 2, cravingAfter: 5 });
   expect(screen.getByText('Craving increased from 2 to 5.')).toBeInTheDocument();
 });
 
 test('RESET saves immediately once and offers Structure Planner when today has no plan', async () => {
-  const { rerender, unmount } = render(<App environment="production" />);
+  const { rerender, unmount } = render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow();
 
@@ -216,13 +218,13 @@ test('RESET saves immediately once and offers Structure Planner when today has n
   expect(screen.getAllByText('Not set')).toHaveLength(3);
   expect(screen.getByText(/Your RESET has been recorded. Strengthen/)).toBeInTheDocument();
 
-  rerender(<App environment="production" />);
+  rerender(<App environment="test-review" />);
   expect(JSON.parse(localStorage.getItem('sessionLog'))).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: 'Complete Your Structure Plan' }));
   expect(screen.getByRole('heading', { name: /Build today’s structure/i })).toBeInTheDocument();
 
   unmount();
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('1');
 });
@@ -285,7 +287,7 @@ test('fresh entitlement blocks starting a RESET after access expires', async () 
     />
   );
   await settleAppEffects();
-  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
 
   await waitFor(() => expect(onAccessDenied).toHaveBeenCalledTimes(1));
   expect(refreshEntitlement).toHaveBeenCalledTimes(1);
@@ -302,7 +304,7 @@ test('pre-RESET entitlement failure shows a retryable error without starting', a
     />
   );
   await settleAppEffects();
-  fireEvent.click(screen.getByRole('button', { name: /Craving Reset/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
 
   expect(await screen.findByRole('alert')).toHaveTextContent('couldn’t verify your RESET access');
   expect(screen.getByRole('button', { name: 'Retry access check' })).toBeInTheDocument();
@@ -314,7 +316,7 @@ test('cloud failure keeps the local RESET, reports failure, and Retry reuses its
     .mockResolvedValueOnce({ data: null, error: cloudError })
     .mockResolvedValueOnce({ data: null, error: { code: '23505' } });
 
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow({
     cravingBefore: 8,
@@ -364,7 +366,7 @@ test('RESET results display an existing Structure Plan saved for today', async (
     connection: 'Friend'
   };
   localStorage.setItem('structurePlans', JSON.stringify([todayPlan]));
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow();
 
@@ -376,7 +378,7 @@ test('RESET results display an existing Structure Plan saved for today', async (
 });
 
 test('saving a Structure Plan does not create a RESET history entry', async () => {
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   fireEvent.click(screen.getByRole('button', { name: /Structure Planner/i }));
   fireEvent.click(screen.getByRole('button', { name: 'Lock It In' }));
@@ -390,7 +392,7 @@ test('saving a Structure Plan does not create a RESET history entry', async () =
 });
 
 test('RESET is not saved until post-RESET anxiety is submitted', async () => {
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   await advanceToPostResetAnxiety({ anxietyBefore: 5 });
   expect(JSON.parse(localStorage.getItem('sessionLog') || '[]')).toHaveLength(0);
@@ -398,7 +400,7 @@ test('RESET is not saved until post-RESET anxiety is submitted', async () => {
 });
 
 test('RESET results describe unchanged anxiety without implying improvement', async () => {
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow({ anxietyBefore: 4, anxietyAfter: 4 });
   expect(screen.getByText('Anxiety stayed the same at 4.')).toBeInTheDocument();
@@ -406,7 +408,7 @@ test('RESET results describe unchanged anxiety without implying improvement', as
 });
 
 test('RESET results describe an anxiety increase as a positive magnitude', async () => {
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   await completeResetFlow({ anxietyBefore: 2, anxietyAfter: 5 });
   expect(screen.getByText('Anxiety increased from 2 to 5.')).toBeInTheDocument();
@@ -417,7 +419,7 @@ test('older RESET records without anxiety fields still load safely', async () =>
   localStorage.setItem('sessionLog', JSON.stringify([{
     date: '7/1/2026, 9:00:00 AM', beforeScore: 7, afterScore: 4, reduction: 3
   }]));
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('1');
   expect(screen.getByText('History on this device')).toBeInTheDocument();
@@ -425,10 +427,10 @@ test('older RESET records without anxiety fields still load safely', async () =>
 
 test('corrupted local RESET history falls back safely', async () => {
   localStorage.setItem('sessionLog', '{not valid json');
-  render(<App environment="production" />);
+  render(<App environment="test-review" />);
   await settleAppEffects();
   expect(screen.getByText('Total Sessions').parentElement).toHaveTextContent('0');
-  expect(screen.getByRole('button', { name: /Craving Reset/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Breathing RESET/i })).toBeInTheDocument();
 });
 
 test('development preview defaults to Consumer and toggles Analytics access', async () => {
@@ -437,8 +439,8 @@ test('development preview defaults to Consumer and toggles Analytics access', as
   expect(screen.getByLabelText('Development Preview')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Consumer' })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.queryByRole('button', { name: /Analytics/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Craving Reset/i })).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Guided Acupressure/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Breathing RESET/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Acupressure RESET/i })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Structure Planner/i })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: /Nightly Review/i })).toBeInTheDocument();
 
@@ -481,7 +483,7 @@ test('production enforces Consumer mode and renders no preview or Analytics acce
   await settleAppEffects();
   expect(screen.queryByLabelText('Development Preview')).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /Analytics/i })).not.toBeInTheDocument();
-  expect(screen.getByRole('button', { name: /Craving Reset/i })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: /Breathing RESET/i })).toBeInTheDocument();
   expect(mockSelect).not.toHaveBeenCalled();
 });
 
@@ -575,9 +577,9 @@ test('Yintang introduction and single interval use one marker with no side switc
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(1);
   act(() => jest.advanceTimersByTime(1000));
   expect(screen.getByText('You completed Mind Calm.')).toBeInTheDocument();
-  expect(screen.queryByText('Switch to your opposite wrist.')).not.toBeInTheDocument();
+  expect(screen.queryByText('First wrist finished.')).not.toBeInTheDocument();
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Finish & Rate' }));
   expect(onComplete).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
 });
@@ -609,7 +611,7 @@ test('Yintang restart resets to 60 seconds and Exit removes its pulse', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
   act(() => jest.advanceTimersByTime(1000));
   expect(screen.getByText('59')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Exit Exercise' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Exit Without Saving' }));
   expect(onExit).toHaveBeenCalledTimes(1);
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(0);
   jest.useRealTimers();
@@ -644,9 +646,9 @@ test('KD27 runs two synchronized markers for one interval without a side switch'
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(2);
   act(() => jest.advanceTimersByTime(1000));
   expect(screen.getByText('You completed Chest Calm.')).toBeInTheDocument();
-  expect(screen.queryByText('Switch to your opposite wrist.')).not.toBeInTheDocument();
+  expect(screen.queryByText('First wrist finished.')).not.toBeInTheDocument();
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(0);
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Finish & Rate' }));
   expect(onComplete).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
 });
@@ -672,7 +674,7 @@ test('KD27 restart resets its single interval to 60 seconds and Exit cleans up',
   fireEvent.click(screen.getByRole('button', { name: 'Restart' }));
   expect(screen.getByText('60')).toBeInTheDocument();
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(2);
-  fireEvent.click(screen.getByRole('button', { name: 'Exit Exercise' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Exit Without Saving' }));
   expect(onExit).toHaveBeenCalledTimes(1);
   expect(document.querySelectorAll('.acupressure-pulse-active')).toHaveLength(0);
   jest.useRealTimers();
@@ -688,16 +690,16 @@ test('runs both wrists with a deliberate side switch', () => {
   expect(document.querySelector('.acupressure-pulse-active')).toBeInTheDocument();
 
   act(() => jest.advanceTimersByTime(1000));
-  expect(screen.getByText('Switch to your opposite wrist.')).toBeInTheDocument();
+  expect(screen.getByText('First wrist finished.')).toBeInTheDocument();
   expect(document.querySelector('.acupressure-pulse-active')).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with Opposite Wrist' }));
   expect(screen.getByText('Opposite wrist')).toBeInTheDocument();
   act(() => jest.advanceTimersByTime(1000));
   expect(screen.getByText('Nice work.')).toBeInTheDocument();
   expect(document.querySelector('.acupressure-pulse-active')).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Finish & Rate' }));
   expect(onComplete).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
 });
@@ -727,8 +729,221 @@ test('pause, resume, restart, and exit control timer activity', () => {
   expect(screen.getByRole('button', { name: 'Pause' })).toBeInTheDocument();
   act(() => jest.advanceTimersByTime(1000));
   expect(screen.getByText('2')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Exit Exercise' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Exit Without Saving' }));
   expect(onExit).toHaveBeenCalledTimes(1);
   expect(document.querySelector('.acupressure-pulse-active')).not.toBeInTheDocument();
   jest.useRealTimers();
+});
+
+const rateBefore = () => {
+  fireEvent.click(screen.getByRole('button', { name: '6' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  fireEvent.click(screen.getByRole('button', { name: '5' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+};
+const rateAfter = async () => {
+  fireEvent.click(screen.getByRole('button', { name: '3' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+  fireEvent.click(screen.getByRole('button', { name: '2' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  await screen.findByRole('heading', { name: 'RESET Complete' });
+};
+
+test('grounding saves ratings and type once, retries without duplicates, and clears state for the next session', async () => {
+  mockInsert.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ error: null });
+  crypto.randomUUID.mockReturnValueOnce('grounding-one').mockReturnValueOnce('device-one').mockReturnValueOnce('breathing-two');
+  render(<App environment="test-review" />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: /Grounding RESET/i }));
+  rateBefore();
+  for (let i = 0; i < 5; i++) fireEvent.click(screen.getByRole('button', { name: 'Skip step' }));
+  expect(mockInsert).not.toHaveBeenCalled();
+  await rateAfter();
+  expect(mockInsert).toHaveBeenCalledWith([expect.objectContaining({ intervention_type: 'grounding_reset', craving_before: 6, craving_after: 3, stress_before: 5, stress_after: 2 })]);
+  expect(screen.queryByText('Channel Action')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+  await screen.findByRole('heading', { name: 'RESET Complete' });
+  expect(mockInsert).toHaveBeenCalledTimes(2);
+  expect(mockInsert.mock.calls[0][0][0].session_id).toBe(mockInsert.mock.calls[1][0][0].session_id);
+  expect(JSON.parse(localStorage.getItem('sessionLog'))).toHaveLength(1);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Return Home' })[0]);
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
+  expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  rateBefore();
+  expect(screen.getByRole('button', { name: 'Continue RESET' })).toBeInTheDocument();
+});
+
+test('standalone acupressure gathers fresh ratings, runs its timer, and saves an independent typed session', async () => {
+  jest.useFakeTimers();
+  try {
+    localStorage.setItem('sessionLog', JSON.stringify([{ id: 'old', beforeScore: 9, afterScore: 8 }]));
+    render(<App environment="test-review" />);
+    await settleAppEffects();
+    fireEvent.click(screen.getByRole('button', { name: /Acupressure RESET/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Mind Calm' }));
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    rateBefore();
+    fireEvent.click(screen.getByRole('button', { name: 'Start', exact: true }));
+    act(() => jest.advanceTimersByTime(60000));
+    fireEvent.click(screen.getByRole('button', { name: 'Finish & Rate' }));
+    expect(mockInsert).not.toHaveBeenCalled();
+    await rateAfter();
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    expect(mockInsert).toHaveBeenCalledWith([expect.objectContaining({ intervention_type: 'acupressure_reset', craving_before: 6, craving_after: 3, stress_before: 5, stress_after: 2 })]);
+    expect(JSON.parse(localStorage.getItem('sessionLog'))).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: 'Mind Calm Result' })).toBeInTheDocument();
+  } finally { jest.useRealTimers(); }
+});
+
+test.each(['grounding', 'acupressure'])('%s exit does not save and reentry starts with fresh ratings', async (type) => {
+  render(<App environment="test-review" />);
+  await settleAppEffects();
+  const enter = () => {
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(`${type} RESET`, 'i') }));
+    if (type === 'acupressure') fireEvent.click(screen.getByRole('button', { name: 'Start Mind Calm' }));
+  };
+  enter();
+  rateBefore();
+  if (type === 'acupressure') fireEvent.click(screen.getByRole('button', { name: 'Start', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: type === 'acupressure' ? 'Exit Without Saving' : 'Exit Exercise' }));
+  expect(mockInsert).not.toHaveBeenCalled();
+  if (type === 'acupressure') fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  enter();
+  expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled();
+});
+
+test.each(['grounding', 'acupressure'])('%s uses fresh entitlement checks and cannot start with expired access', async (type) => {
+  const refreshEntitlement = jest.fn().mockResolvedValue({ hasAccess: false });
+  const onAccessDenied = jest.fn();
+  render(<App currentUser={{ id: 'user-a' }} refreshEntitlement={refreshEntitlement} onAccessDenied={onAccessDenied} />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`${type} RESET`, 'i') }));
+  if (type === 'acupressure') fireEvent.click(screen.getByRole('button', { name: 'Start Mind Calm' }));
+  await waitFor(() => expect(onAccessDenied).toHaveBeenCalledWith({ hasAccess: false }));
+  expect(refreshEntitlement).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('heading', { name: 'How strong is the craving?' })).not.toBeInTheDocument();
+  expect(mockInsert).not.toHaveBeenCalled();
+});
+
+test('breathing preserves optional Channel Energy and its saved action', async () => {
+  render(<App environment="test-review" />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
+  rateBefore();
+  fireEvent.click(screen.getByRole('button', { name: 'Continue RESET' }));
+  fireEvent.click(screen.getByRole('button', { name: /Channel Energy/i }));
+  fireEvent.click(screen.getByRole('button', { name: '10-min fast walk' }));
+  await rateAfter();
+  expect(screen.getByText('10-min fast walk')).toBeInTheDocument();
+  expect(JSON.parse(localStorage.getItem('sessionLog'))[0]).toMatchObject({ interventionType: 'craving_reset', selectedAction: '10-min fast walk' });
+});
+
+test('anxiety average includes all three RESET types and historical records without duplicating sessions', () => {
+  expect(calculateAverageAnxietyReduction([
+    { id: 'a', interventionType: 'craving_reset', anxietyBefore: 8, anxietyAfter: 2 },
+    { id: 'b', interventionType: 'acupressure_reset', anxietyBefore: 7, anxietyAfter: 3 },
+    { id: 'c', interventionType: 'grounding_reset', anxietyBefore: 2, anxietyAfter: 4 },
+    { id: 'd', anxietyBefore: 4, anxietyAfter: 4 },
+    { id: 'b', interventionType: 'acupressure_reset', anxietyBefore: 7, anxietyAfter: 3 }
+  ])).toBe('2.0');
+});
+
+test('dashboard filter preserves historical sessions and applies to craving, stress, engagement and mood aggregates', async () => {
+  const rows = [
+    { intervention_type: 'craving_reset', craving_before: 8, craving_after: 2, stress_before: 7, stress_after: 2, stress_level: 2 },
+    { intervention_type: 'acupressure_reset', craving_before: 6, craving_after: 3, stress_before: 6, stress_after: 3, stress_level: 3 },
+    { intervention_type: 'grounding_reset', craving_before: 9, craving_after: 7, stress_before: 8, stress_after: 7, stress_level: 7 },
+    { craving_before: 4, craving_after: 4, stress_level: 4 }
+  ].map((row, index) => ({ ...row, session_id: `s-${index}`, device_id: `d-${index}`, mood: 'Low', created_at: new Date().toISOString() }));
+  mockSelect.mockReturnValue({ order: async () => ({ data: rows, error: null }) });
+  render(<App environment="development" />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: 'Administrator' }));
+  fireEvent.click(screen.getByRole('button', { name: /Analytics/i }));
+  const metric = (label) => screen.getByText((_, element) =>
+    within(element).queryByRole('heading', { name: label, exact: true }) !== null,
+    { selector: '.analytics-metric-card' });
+  await waitFor(() => expect(metric('RESET Sessions Completed')).toHaveTextContent('4'));
+  expect(metric('Average User Craving Change')).toHaveTextContent('2.8');
+  expect(metric('Average Stress Level')).toHaveTextContent('4.0/10');
+  expect(metric('Users Showing Craving Improvement')).toHaveTextContent('75%');
+  for (const [type, count, change, stress] of [
+    ['craving_reset', '2', '3.0', '3.0/10'],
+    ['acupressure_reset', '1', '3.0', '3.0/10'],
+    ['grounding_reset', '1', '2.0', '7.0/10']
+  ]) {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Intervention' }), { target: { value: type } });
+    expect(metric('RESET Sessions Completed')).toHaveTextContent(count);
+    expect(metric('Average User Craving Change')).toHaveTextContent(change);
+    expect(metric('Average Stress Level')).toHaveTextContent(stress);
+    expect(metric('Low Mood')).toHaveTextContent(`Sessions${count}`);
+  }
+  fireEvent.change(screen.getByRole('combobox', { name: 'Intervention' }), { target: { value: 'all' } });
+  expect(metric('RESET Sessions Completed')).toHaveTextContent('4');
+});
+
+test('early acupressure saves actual ratings and partial metadata locally and in the proposed cloud payload', async () => {
+  crypto.randomUUID.mockReturnValueOnce('early-acupressure').mockReturnValueOnce('test-device').mockReturnValue('next-breathing');
+  jest.useFakeTimers();
+  try {
+    render(<App environment="test-review" />);
+    await settleAppEffects();
+    fireEvent.click(screen.getByRole('button', { name: /Acupressure RESET/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start Wrist Calm' }));
+    rateBefore();
+    fireEvent.click(screen.getByRole('button', { name: 'Start', exact: true }));
+    act(() => jest.advanceTimersByTime(2500));
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    act(() => jest.advanceTimersByTime(10000));
+    fireEvent.click(screen.getByRole('button', { name: 'Finish & Rate' }));
+    expect(mockInsert).not.toHaveBeenCalled();
+    await rateAfter();
+    expect(JSON.parse(localStorage.getItem('sessionLog'))[0]).toMatchObject({ interventionType: 'acupressure_reset', beforeScore: 6, afterScore: 3, anxietyBefore: 5, anxietyAfter: 2, activeDurationSeconds: 2.5, guidedSequenceCompleted: false });
+    expect(screen.getByText('Finished before the full guided sequence')).toBeInTheDocument();
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    const payload = mockInsert.mock.calls[0][0][0];
+    expect(payload).toMatchObject({ intervention_type: 'acupressure_reset', craving_before: 6, craving_after: 3, stress_before: 5, stress_after: 2 });
+    expect(payload.active_duration_seconds).toBe(2.5);
+    expect(payload.guided_sequence_completed).toBe(false);
+    fireEvent.click(screen.getAllByRole('button', { name: 'Return Home' })[0]);
+    await completeResetFlow();
+    expect(screen.queryByText('Finished before the full guided sequence')).not.toBeInTheDocument();
+  } finally { jest.useRealTimers(); }
+});
+
+test('production without authentication cannot save through the legacy fallback', async () => {
+  render(<App environment="production" />);
+  await settleAppEffects();
+  await completeResetFlow();
+  expect(mockInsert).not.toHaveBeenCalled();
+  expect(screen.getByText('Sign in before saving a RESET session.')).toBeInTheDocument();
+});
+
+test('expired authentication keeps completed measurements in the original account cache', async () => {
+  supabase.auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+  render(<App environment="production" currentUser={{ id: 'user-owned-uuid' }} />);
+  await settleAppEffects();
+  await completeResetFlow();
+  expect(mockInsert).not.toHaveBeenCalled();
+  const cached = JSON.parse(localStorage.getItem('pulsewell:reset-history:v2:user:user-owned-uuid')).sessions[0];
+  expect(cached).toMatchObject({ ownerUserId: 'user-owned-uuid', syncStatus: 'failed' });
+  expect(cached.beforeScore).toEqual(expect.any(Number));
+  expect(cached.afterScore).toEqual(expect.any(Number));
+  expect(localStorage.getItem('sessionLog')).toBeNull();
+});
+
+test('switching accounts mid-exercise retains completed measurements under the starting owner', async () => {
+  const { rerender } = render(<App environment="production" currentUser={{ id: 'user-owned-uuid' }} />);
+  await settleAppEffects();
+  await advanceToPostResetAnxiety();
+  rerender(<App environment="production" currentUser={{ id: 'user-b' }} />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: '2' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+  expect(await screen.findByText('Your RESET was saved on this device, but cloud sync failed.')).toBeInTheDocument();
+  expect(mockInsert).not.toHaveBeenCalled();
+  const a = JSON.parse(localStorage.getItem('pulsewell:reset-history:v2:user:user-owned-uuid')).sessions;
+  expect(a[0]).toMatchObject({ ownerUserId: 'user-owned-uuid', anxietyAfter: 2, syncStatus: 'pending' });
+  const b = JSON.parse(localStorage.getItem('pulsewell:reset-history:v2:user:user-b'));
+  expect(b?.sessions || []).toEqual([]);
 });

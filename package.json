@@ -17,10 +17,11 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "node scripts/start-review.cjs",
+    "start:review": "node scripts/start-review.cjs",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "test:functions": "jest netlify/functions --runInBand --env=node",
+    "test:functions": "jest netlify/functions --runInBand --env=node --setupFilesAfterEnv ./src/testSupport/blockNetwork.js",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

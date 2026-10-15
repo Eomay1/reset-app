@@ -26,3 +26,12 @@ test("updates sync status by session ID and safely handles corrupt storage", () 
   localStorage.setItem(getUserHistoryKey("broken"), "{bad json");
   expect(readUserHistory("broken")).toEqual([]);
 });
+
+test('local pending records are stamped with their owner and cannot move accounts', () => {
+  upsertUserSession('user-a', { sessionId: 'owned', activeDurationSeconds: 0, guidedSequenceCompleted: false });
+  const session = readUserHistory('user-a')[0];
+  expect(session.ownerUserId).toBe('user-a');
+  expect(() => upsertUserSession('user-b', session)).toThrow(/original user/);
+  expect(readUserHistory('user-b')).toEqual([]);
+  expect(readUserHistory('user-a')[0]).toEqual(session);
+});

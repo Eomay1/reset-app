@@ -49,6 +49,7 @@ export default function useAuthenticatedResetHistory(userId) {
 
   const savePendingSession = useCallback((session) => {
     if (!userId) throw new Error("Authentication is required to save RESET history.");
+    if (activeUserId.current !== userId) throw new Error("The active account has changed.");
     const updated = upsertUserSession(userId, { ...session, syncStatus: "pending" });
     setHistory({ userId, sessions: updated });
     return updated;
@@ -56,6 +57,10 @@ export default function useAuthenticatedResetHistory(userId) {
 
   const syncSession = useCallback(async (session) => {
     if (!userId) throw new Error("Authentication is required to sync RESET history.");
+    if (activeUserId.current !== userId) throw new Error("The active account has changed.");
+    if (session.ownerUserId && session.ownerUserId !== userId) {
+      throw new Error("Sign in as the original user to save this RESET session.");
+    }
     try {
       await insertUserSession(userId, session);
       const updated = updateUserSessionSyncStatus(userId, session.sessionId || session.id, "synced");

@@ -1,6 +1,6 @@
 import "./AcupressureExercise.css";
 
-function AcupressureSelection({ exercises, onSelectExercise, onBack }) {
+function AcupressureSelection({ exercises, onSelectExercise, onBack, disabled = false, error = null }) {
   return (
     <main className="acupressure-selection-screen">
       <section className="acupressure-selection-card">
@@ -16,6 +16,7 @@ function AcupressureSelection({ exercises, onSelectExercise, onBack }) {
           emergency care.
         </aside>
 
+        {error && <p role="alert">{error}</p>}
         <div className="acupressure-exercise-grid">
           {exercises.map((exercise) => (
             <article className="acupressure-exercise-option" key={exercise.id}>
@@ -31,6 +32,7 @@ function AcupressureSelection({ exercises, onSelectExercise, onBack }) {
               <button
                 type="button"
                 className="acupressure-button acupressure-button--primary"
+                disabled={disabled}
                 onClick={() => onSelectExercise(exercise.id)}
               >
                 {exercise.buttonLabel}
@@ -42,6 +44,7 @@ function AcupressureSelection({ exercises, onSelectExercise, onBack }) {
         <button
           type="button"
           className="acupressure-button acupressure-button--secondary acupressure-selection-back"
+          disabled={disabled}
           onClick={onBack}
         >
           Back

@@ -29,6 +29,23 @@ function AcupressureExercise({
   const [isRunning, setIsRunning] = useState(false);
   const [pulseCycle, setPulseCycle] = useState(0);
   const intervalRef = useRef(null);
+  const activeSince = useRef(null);
+  const activeMilliseconds = useRef(0);
+  const intervalMilliseconds = useRef(0);
+  const finished = useRef(false);
+
+  // Measure running time, not time on the page or the nominal protocol length.
+  // Cap each interval so delayed browser ticks cannot count transition time.
+  const measureActiveTime = useCallback(() => {
+    if (activeSince.current !== null) {
+      const now = performance.now();
+      const elapsed = Math.min(Math.max(0, now - activeSince.current), Math.max(0, duration * 1000 - intervalMilliseconds.current));
+      activeMilliseconds.current += elapsed;
+      intervalMilliseconds.current += elapsed;
+      activeSince.current = intervalMilliseconds.current >= duration * 1000 ? null : now;
+    }
+    setRemaining(Math.max(0, Math.ceil(duration - intervalMilliseconds.current / 1000)));
+  }, [duration]);
 
   const clearTimer = useCallback(() => {
     if (intervalRef.current !== null) {
@@ -45,11 +62,11 @@ function AcupressureExercise({
 
     clearTimer();
     intervalRef.current = setInterval(() => {
-      setRemaining((current) => Math.max(0, current - 1));
+      measureActiveTime();
     }, 1000);
 
     return clearTimer;
-  }, [clearTimer, isRunning, view, sideIndex, pulseCycle]);
+  }, [clearTimer, isRunning, view, sideIndex, pulseCycle, measureActiveTime]);
 
   useEffect(() => {
     if (view !== "active" || remaining !== 0) return;
@@ -65,8 +82,11 @@ function AcupressureExercise({
   useEffect(() => clearTimer, [clearTimer]);
 
   const beginInterval = (nextSideIndex = sideIndex) => {
+    measureActiveTime();
     clearTimer();
     setIsRunning(false);
+    intervalMilliseconds.current = 0;
+    activeSince.current = performance.now();
     setSideIndex(nextSideIndex);
     setRemaining(duration);
     setView("active");
@@ -74,7 +94,35 @@ function AcupressureExercise({
     setIsRunning(true);
   };
 
+  const togglePause = () => {
+    if (isRunning) {
+      measureActiveTime();
+      activeSince.current = null;
+      clearTimer();
+    } else {
+      activeSince.current = performance.now();
+    }
+    setIsRunning(!isRunning);
+  };
+
+  const finishAndRate = () => {
+    if (finished.current) return;
+    measureActiveTime();
+    finished.current = true;
+    activeSince.current = null;
+    clearTimer();
+    setIsRunning(false);
+    const finalSide = !(bilateral && requiresSideSwitch) || sideIndex === sideLabels.length - 1;
+    onComplete?.({
+      activeDurationSeconds: Math.round(activeMilliseconds.current) / 1000,
+      guidedSequenceCompleted: finalSide && intervalMilliseconds.current >= duration * 1000
+    });
+  };
+
   const exitExercise = () => {
+    if (finished.current) return;
+    finished.current = true;
+    activeSince.current = null;
     clearTimer();
     setIsRunning(false);
     onExit?.();
@@ -92,6 +140,7 @@ function AcupressureExercise({
               <p className="acupressure-eyebrow">Guided acupressure</p>
               <h1>{displayName}</h1>
               <p className="acupressure-point-name">{pointName}</p>
+              {bilateral && requiresSideSwitch && <p>The opposite wrist is optional. You can finish and rate at any time.</p>}
             </header>
             <div className="acupressure-intro-layout">
               <ExerciseImage image={image} displayName={displayName} imageAlt={imageAlt} />
@@ -131,11 +180,12 @@ function AcupressureExercise({
                   <span style={{ width: `${progress}%` }} />
                 </div>
                 <div className="acupressure-controls">
-                  <button type="button" className="acupressure-button acupressure-button--primary" onClick={() => setIsRunning((running) => !running)}>
+                  <button type="button" className="acupressure-button acupressure-button--primary" onClick={togglePause}>
                     {isRunning ? "Pause" : "Resume"}
                   </button>
                   <button type="button" className="acupressure-button acupressure-button--secondary" onClick={() => beginInterval(sideIndex)}>Restart</button>
-                  <button type="button" className="acupressure-button acupressure-button--exit" onClick={exitExercise}>Exit Exercise</button>
+                  <button type="button" className="acupressure-button acupressure-button--primary acupressure-finish" onClick={finishAndRate}>Finish &amp; Rate</button>
+                  <button type="button" className="acupressure-button acupressure-button--exit" onClick={exitExercise}>Exit Without Saving</button>
                 </div>
               </div>
             </div>
@@ -144,10 +194,11 @@ function AcupressureExercise({
 
         {view === "switch" && (
           <div className="acupressure-transition" role="status">
-            <h1>Switch to your opposite wrist.</h1>
-            <p>Place your thumb on the same point on the inner wrist.</p>
-            <button type="button" className="acupressure-button acupressure-button--primary" onClick={() => beginInterval(sideIndex + 1)}>Continue</button>
-            <button type="button" className="acupressure-button acupressure-button--exit" onClick={exitExercise}>Exit Exercise</button>
+            <h1>First wrist finished.</h1>
+            <p>You can finish and rate now, or try the same point on your opposite wrist.</p>
+            <button type="button" className="acupressure-button acupressure-button--secondary" onClick={() => beginInterval(sideIndex + 1)}>Continue with Opposite Wrist</button>
+            <button type="button" className="acupressure-button acupressure-button--primary" onClick={finishAndRate}>Finish &amp; Rate</button>
+            <button type="button" className="acupressure-button acupressure-button--exit" onClick={exitExercise}>Exit Without Saving</button>
           </div>
         )}
 
@@ -155,7 +206,8 @@ function AcupressureExercise({
           <div className="acupressure-transition" role="status">
             <h1>Nice work.</h1>
             <p>{completionText || `You completed ${displayName}${bilateral ? " on both wrists" : ""}.`}</p>
-            <button type="button" className="acupressure-button acupressure-button--primary" onClick={onComplete}>Continue</button>
+            <button type="button" className="acupressure-button acupressure-button--primary" onClick={finishAndRate}>Finish &amp; Rate</button>
+            <button type="button" className="acupressure-button acupressure-button--exit" onClick={exitExercise}>Exit Without Saving</button>
           </div>
         )}
       </section>

@@ -1,3 +1,7 @@
+import { appStorage as localStorage, isLocalReview, useMockServices } from "./review/reviewStorage";
+import { upsertUserSession } from "./history/resetHistoryStorage";
+import { INTERVENTIONS, interventionLabel, filterInterventions } from "./interventions/interventionTypes";
+import GroundingExercise from "./components/GroundingExercise";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./supabaseClient";
@@ -26,7 +30,7 @@ export function calculateAverageAnxietyReduction(sessions) {
   const reductions = [];
 
   sessions.forEach((session) => {
-    if (!session || (session.interventionType && session.interventionType !== "craving_reset")) return;
+    if (!session || (session.interventionType && !INTERVENTIONS.some((item) => item.type === session.interventionType))) return;
     if (session.id && seenSessionIds.has(session.id)) return;
     if (session.id) seenSessionIds.add(session.id);
     if (!Number.isFinite(session.anxietyBefore) || !Number.isFinite(session.anxietyAfter)) return;
@@ -70,6 +74,8 @@ function App({
   refreshEntitlement = null,
   onAccessDenied = null
 }) {
+  const allowMockSaving = useMockServices && (isLocalReview ||
+    (process.env.NODE_ENV === "test" && environment !== "production"));
   const isDevelopmentPreview =
     process.env.NODE_ENV === "development" ||
     (process.env.NODE_ENV === "test" && environment === "development");
@@ -97,6 +103,7 @@ function App({
   const [accessCheckError, setAccessCheckError] = useState(null);
   const resetSavedRef = useRef(false);
   const resetSessionIdRef = useRef(null);
+  const resetOwnerRef = useRef(null);
   const [selectedAction, setSelectedAction] = useState("");
   const [wins, setWins] = useState("");
  const [challenge, setChallenge] = useState("");
@@ -106,15 +113,12 @@ function App({
  const [mood, setMood] = useState("");
  const [anxietyBefore, setAnxietyBefore] = useState(null);
  const [anxietyAfter, setAnxietyAfter] = useState(null);
- const [cravingBeforeAcupressure, setCravingBeforeAcupressure] = useState(null);
- const [stressBeforeAcupressure, setStressBeforeAcupressure] = useState(null);
- const [cravingAfterAcupressure, setCravingAfterAcupressure] = useState(null);
- const [stressAfterAcupressure, setStressAfterAcupressure] = useState(null);
- const [interventionType, setInterventionType] = useState(null);
+ const [interventionType, setInterventionType] = useState("craving_reset");
  const [acupressureExercise, setAcupressureExercise] = useState(null);
- const [acupressureCompleted, setAcupressureCompleted] = useState(false);
+ const [acupressureFinished, setAcupressureFinished] = useState(false);
+ const [acupressureMetadata, setAcupressureMetadata] = useState(null);
  const [acupressureCompletedAt, setAcupressureCompletedAt] = useState(null);
- const [acupressureReturnStep, setAcupressureReturnStep] = useState("home");
+ const pendingIntervention = useRef({ type: "craving_reset", exerciseId: null });
  const [wakeTime, setWakeTime] = useState("7:00");
  const [block, setBlock] = useState("Gym / Work / Walk");
  const [connection, setConnection] = useState("Call / Meeting / Visit");
@@ -125,7 +129,9 @@ function App({
  const [nightlyReviewCount, setNightlyReviewCount] = useState(
   JSON.parse(localStorage.getItem("nightlyReview"))?.length || 0
 );
-const [cloudSessions, setCloudSessions] = useState([]);
+const [allCloudSessions, setCloudSessions] = useState([]);
+const [interventionFilter, setInterventionFilter] = useState("all");
+const cloudSessions = filterInterventions(allCloudSessions, interventionFilter);
  const changePreviewRole = (nextRole) => {
   if (!isDevelopmentPreview || !["consumer", "admin"].includes(nextRole)) return;
   setPreviewRole(nextRole);
@@ -160,6 +166,7 @@ useEffect(() => {
   if (step === "analytics" && !isAdmin) setStep("home");
 }, [isAdmin, step]);
   useEffect(() => {
+    if (step !== "reset") return undefined;
     const interval = setInterval(() => {
       setTimer((prev) => {
         if (prev > 1) return prev - 1;
@@ -180,8 +187,16 @@ useEffect(() => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [phase]);
-const startCravingReset = () => {
+  }, [phase, step]);
+const startReset = (type = "craving_reset", exerciseId = null) => {
+  resetOwnerRef.current = currentUser?.id ?? null;
+  setInterventionType(type);
+  setAcupressureExercise(exerciseId);
+  setAcupressureFinished(false);
+  setAcupressureMetadata(null);
+  setAcupressureCompletedAt(null);
+  setPhase("Inhale");
+  setTimer(4);
   resetSavedRef.current = false;
   resetSessionIdRef.current = crypto.randomUUID();
   setBeforeScore(null);
@@ -192,10 +207,11 @@ const startCravingReset = () => {
   setSaveStatus("idle");
   setStep("before");
 };
-const beginCravingReset = async () => {
+const beginReset = async (type = "craving_reset", exerciseId = null) => {
+  pendingIntervention.current = { type, exerciseId };
   setAccessCheckError(null);
   if (!currentUser || !refreshEntitlement) {
-    startCravingReset();
+    startReset(type, exerciseId);
     return;
   }
 
@@ -207,7 +223,7 @@ const beginCravingReset = async () => {
       if (onAccessDenied) onAccessDenied(freshEntitlement);
       return;
     }
-    startCravingReset();
+    startReset(type, exerciseId);
   } catch (entitlementError) {
     setAccessCheckError(entitlementError);
   } finally {
@@ -223,7 +239,10 @@ const updateLocalSessionSyncStatus = (sessionId, syncStatus) => {
   localStorage.setItem("sessionLog", JSON.stringify(updatedSessions));
   setLegacySessionLog(updatedSessions);
 };
-const saveCravingSession = async (session) => {
+const saveSession = async (session) => {
+  if (!allowMockSaving || session.ownerUserId) {
+    throw new Error("Sign in as the original user to save this RESET session.");
+  }
   const { error } = await supabase
     .from("session_results")
     .insert([toCloudPayload(session, currentUser?.id ?? null)]);
@@ -238,7 +257,7 @@ const finishCloudSave = async (session, { showElevatedFallback = false } = {}) =
     if (currentUser) {
       await authenticatedHistory.syncSession(session);
     } else {
-      await saveCravingSession(session);
+      await saveSession(session);
       updateLocalSessionSyncStatus(session.sessionId, "synced");
     }
     setSaveStatus("synced");
@@ -269,11 +288,13 @@ const saveCompletedReset = async () => {
 
   const completedAt = new Date();
   const newSession = {
+    ownerUserId: resetOwnerRef.current,
     id: resetId,
     sessionId: resetId,
     date: completedAt.toLocaleString(),
     completedAt: completedAt.toISOString(),
-    interventionType: "craving_reset",
+    interventionType,
+    ...(interventionType === "acupressure_reset" ? { acupressureExercise, ...acupressureMetadata } : {}),
     beforeScore,
     afterScore,
     reduction:
@@ -295,6 +316,19 @@ const saveCompletedReset = async () => {
 
   const updatedSessions = [...existingSessions, newSession];
 
+  if (newSession.ownerUserId && newSession.ownerUserId !== currentUser?.id) {
+    upsertUserSession(newSession.ownerUserId, newSession);
+    setSaveStatus("failed");
+    setStep("done");
+    resetSavedRef.current = true;
+    return false;
+  }
+  if (!newSession.ownerUserId && !allowMockSaving) {
+    setSaveStatus("failed");
+    setStep("done");
+    return false;
+  }
+
   if (currentUser) {
     authenticatedHistory.savePendingSession(newSession);
   } else {
@@ -303,7 +337,7 @@ const saveCompletedReset = async () => {
   }
   resetSavedRef.current = true;
   resetSessionIdRef.current = resetId;
-  await finishCloudSave(newSession, { showElevatedFallback: true });
+  await finishCloudSave(newSession, { showElevatedFallback: interventionType === "craving_reset" });
   return true;
 };
 const retryCloudSave = async () => {
@@ -313,7 +347,11 @@ const retryCloudSave = async () => {
     setSaveStatus("saving");
     setStep("saving");
     try {
-      await authenticatedHistory.retrySession(sessionId);
+      if (resetOwnerRef.current !== currentUser.id) {
+        throw new Error("Sign in as the original user to retry this RESET session.");
+      }
+      const saved = await authenticatedHistory.retrySession(sessionId);
+      if (!saved) throw new Error("The pending RESET session was not found for this user.");
       setSaveStatus("synced");
       setStep("done");
     } catch (error) {
@@ -372,7 +410,7 @@ const averageReduction =
     : 0;
 const averageAnxietyReduction = calculateAverageAnxietyReduction(sessionLog);
     useEffect(() => {
-      if (!isAdmin) return;
+      if (!isAdmin || step !== "analytics") return;
       const loadCloudSessions = async () => {
       console.log("Loading cloud sessions...");
   const { data, error } = await supabase
@@ -389,7 +427,7 @@ const averageAnxietyReduction = calculateAverageAnxietyReduction(sessionLog);
   setCloudSessions(data || []);
       };
       loadCloudSessions();
-    }, [isAdmin]);
+    }, [isAdmin, step]);
 const cloudTotalSessions = cloudSessions.length;
 
 const cloudUserOutcomeTotals = cloudSessions.reduce((acc, session) => {
@@ -1159,19 +1197,19 @@ paddingBottom: "60px",
             {accessCheckError && (
               <div role="alert" className="auth-error">
                 <p>We couldn’t verify your RESET access. Please try again.</p>
-                <button type="button" onClick={beginCravingReset}>Retry access check</button>
+                <button type="button" onClick={() => beginReset(pendingIntervention.current.type, pendingIntervention.current.exerciseId)}>Retry access check</button>
               </div>
             )}
 
             <div className="home-actions-grid">
               <div className="home-action-slot">
                 <button
-                  onClick={beginCravingReset}
+                  onClick={() => beginReset()}
                   disabled={checkingAccess}
                   className="home-action-button"
                 >
                   <span className="home-action-title">
-                    {checkingAccess ? "Checking access…" : "Craving Reset"}
+                    {checkingAccess ? "Checking access…" : "Breathing RESET"}
                   </span>
                   <span className="home-action-description">
                     Pause and work through an urge
@@ -1185,9 +1223,16 @@ paddingBottom: "60px",
                   onClick={() => setStep("acupressure-library")}
                   className="home-action-button"
                 >
-                  <span className="home-action-title">Guided Acupressure</span>
+                  <span className="home-action-title">Acupressure RESET</span>
                   <span className="home-action-description">Choose a guided pressure-point exercise.</span>
                   <span className="home-action-cta">Explore Acupressure</span>
+                </button>
+              </div>
+
+              <div className="home-action-slot">
+                <button type="button" onClick={() => beginReset("grounding_reset")} disabled={checkingAccess} className="home-action-button">
+                  <span className="home-action-title">Grounding RESET</span>
+                  <span className="home-action-description">Reconnect with your senses, one step at a time.</span>
                 </button>
               </div>
 
@@ -1346,7 +1391,7 @@ paddingBottom: "60px",
     value={anxietyBefore}
     min={1}
     onChange={setAnxietyBefore}
-    onContinue={() => setStep("reset")}
+    onContinue={() => setStep(interventionType === "acupressure_reset" ? "acupressure" : interventionType === "grounding_reset" ? "grounding" : "reset")}
   />
 )}
 
@@ -1631,19 +1676,9 @@ onClick={() => {
             <p>You can try a different self-regulation technique.</p>
           </header>
           <div className="impulse-actions">
-            <button type="button" className="impulse-action-button impulse-action-button--primary" onClick={() => {
-              setCravingBeforeAcupressure(afterScore);
-              setStressBeforeAcupressure(anxietyAfter);
-              setInterventionType("acupressure");
-              setAcupressureExercise("pc6");
-              setAcupressureCompleted(false);
-              setAcupressureCompletedAt(null);
-              setCravingAfterAcupressure(null);
-              setStressAfterAcupressure(null);
-              setAcupressureReturnStep("elevated-fallback");
-              setStep("acupressure");
-            }}><span className="impulse-action-title">Try Wrist Calm</span></button>
-            <button type="button" className="impulse-action-button" onClick={() => setStep("reset")}><span className="impulse-action-title">Repeat Breathing</span></button>
+            <button type="button" className="impulse-action-button impulse-action-button--primary" disabled={checkingAccess} onClick={() => beginReset("acupressure_reset", "pc6")}><span className="impulse-action-title">Try Wrist Calm</span></button>
+            <button type="button" className="impulse-action-button" disabled={checkingAccess} onClick={() => beginReset()}><span className="impulse-action-title">Repeat Breathing</span></button>
+            {accessCheckError && <p role="alert">We couldn’t verify your RESET access. Please try again.</p>}
             <button type="button" className="impulse-action-button" onClick={() => { setSelectedAction("Contact support"); setStep("done"); }}><span className="impulse-action-title">Contact Support</span></button>
             <button type="button" className="impulse-action-button" onClick={() => setStep("done")}><span className="impulse-action-title">Continue</span></button>
           </div>
@@ -1655,40 +1690,30 @@ onClick={() => {
       <AcupressureSelection
         exercises={acupressureExercises}
         onBack={() => setStep("home")}
-        onSelectExercise={(exerciseId) => {
-          setCravingBeforeAcupressure(afterScore ?? beforeScore);
-          setStressBeforeAcupressure(anxietyAfter);
-          setInterventionType("acupressure");
-          setAcupressureExercise(exerciseId);
-          setAcupressureCompleted(false);
-          setAcupressureCompletedAt(null);
-          setCravingAfterAcupressure(null);
-          setStressAfterAcupressure(null);
-          setAcupressureReturnStep("acupressure-library");
-          setStep("acupressure");
-        }}
+        onSelectExercise={(exerciseId) => beginReset("acupressure_reset", exerciseId)}
+        disabled={checkingAccess}
+        error={accessCheckError ? "We couldn’t verify your RESET access. Please try again." : null}
       />
     )}
 
     {step === "acupressure" && activeAcupressureConfig && (
       <AcupressureExercise
         {...activeAcupressureConfig}
+        key={acupressureExercise}
+        exerciseId={acupressureExercise}
         duration={60}
-        onExit={() => setStep(acupressureReturnStep)}
-        onComplete={() => {
-          setAcupressureCompleted(true);
+        onExit={() => setStep("acupressure-library")}
+        onComplete={(metadata) => {
+          setAcupressureMetadata(metadata);
+          setAcupressureFinished(true);
           setAcupressureCompletedAt(new Date().toISOString());
-          setStep("acupressure-craving");
+          setStep("analysis");
         }}
       />
     )}
 
-    {step === "acupressure-craving" && (
-      <RatingScreen title="Current craving" description="How strong is the craving now?" value={cravingAfterAcupressure} onChange={setCravingAfterAcupressure} onContinue={() => setStep("acupressure-stress")} />
-    )}
-
-    {step === "acupressure-stress" && (
-      <RatingScreen title="Current stress or anxiety" description="How stressed or anxious do you feel now?" value={stressAfterAcupressure} onChange={setStressAfterAcupressure} onContinue={() => setStep("done")} />
+    {step === "grounding" && (
+      <GroundingExercise onComplete={() => setStep("analysis")} onExit={() => setStep("home")} />
     )}
 
     {/* STRUCTURE */}
@@ -1948,6 +1973,13 @@ setTimeout(() => {
     <header className="analytics-header">
       <p className="analytics-eyebrow">Analytics overview</p>
       <h2>Program Dashboard</h2>
+      <label className="intervention-filter">Intervention
+        <select value={interventionFilter} onChange={(event) => setInterventionFilter(event.target.value)}>
+          <option value="all">All interventions</option>
+          {INTERVENTIONS.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
+        </select>
+      </label>
+      <p>All metrics and charts below use this filter. Breathing includes historical sessions with no recorded type. Session counts include early-finished rated exercises and do not indicate full guided sequence completion.</p>
     </header>
 
     <section className="analytics-section">
@@ -2544,9 +2576,11 @@ setTimeout(() => {
         <div className="reset-complete-container">
           <header className="reset-complete-header">
             <h2>RESET Complete</h2>
+            <p>{interventionLabel(interventionType)}</p>
             {saveStatus === "failed" ? (
               <div role="alert">
-                <p>Your RESET was saved on this device, but cloud sync failed.</p>
+                <p>{!resetOwnerRef.current && !allowMockSaving ? "Sign in before saving a RESET session." : "Your RESET was saved on this device, but cloud sync failed."}</p>
+                {!allowMockSaving && <p>Sign in as the original user, then open History to retry your pending save. <a href="/signin">Sign in</a></p>}
                 <button
                   type="button"
                   className="reset-complete-home-button"
@@ -2643,19 +2677,24 @@ setTimeout(() => {
               </section>
             )}
 
-            <section className="reset-complete-section">
+            {interventionType === "craving_reset" && <section className="reset-complete-section">
               <h3>Channel Action</h3>
               <p className="reset-complete-channel-value">
                 {selectedAction || "No channel action selected."}
               </p>
-            </section>
+            </section>}
 
-            {acupressureCompleted && (
+            {acupressureFinished && (
               <section className="reset-complete-section">
-                <h3>Wrist Calm Result</h3>
+                <h3>{activeAcupressureConfig?.displayName || "Acupressure"} Result</h3>
+                {acupressureMetadata && <>
+                  <p>Active exercise time: {acupressureMetadata.activeDurationSeconds} seconds</p>
+                  <p>{acupressureMetadata.guidedSequenceCompleted ? "Full guided sequence completed" : "Finished before the full guided sequence"}</p>
+                  <small>Active time excludes pauses and time between wrists.</small>
+                </>}
                 <div className="reset-complete-row">
                   <span className="reset-complete-label">Technique</span>
-                  <strong className="reset-complete-value">{interventionType}</strong>
+                  <strong className="reset-complete-value">{interventionLabel(interventionType)}</strong>
                 </div>
                 <div className="reset-complete-row">
                   <span className="reset-complete-label">Exercise</span>
@@ -2663,11 +2702,11 @@ setTimeout(() => {
                 </div>
                 <div className="reset-complete-row">
                   <span className="reset-complete-label">Craving</span>
-                  <strong className="reset-complete-value">{cravingBeforeAcupressure}/10 to {cravingAfterAcupressure}/10</strong>
+                  <strong className="reset-complete-value">{beforeScore}/10 to {afterScore}/10</strong>
                 </div>
                 <div className="reset-complete-row">
                   <span className="reset-complete-label">Stress / anxiety</span>
-                  <strong className="reset-complete-value">{stressBeforeAcupressure}/10 to {stressAfterAcupressure}/10</strong>
+                  <strong className="reset-complete-value">{anxietyBefore}/10 to {anxietyAfter}/10</strong>
                 </div>
                 <div className="reset-complete-row">
                   <span className="reset-complete-label">Completed</span>

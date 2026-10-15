@@ -1,0 +1,204 @@
+{
+  "version": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit",
+  "pglite": "0.5.8",
+  "migrations": [
+    {
+      "file": "202608270001_consumer_auth_foundation.sql",
+      "sha256": "b57bf90fbd51d886443aeb44ccbfe7d8acc13f9f0b3429e4f782815bd8087e8c"
+    },
+    {
+      "file": "202609030001_consumer_trial_entitlements.sql",
+      "sha256": "95274bdef616e68f41bceca284940224433b428a33638114b179af7ae0051e6c"
+    },
+    {
+      "file": "202610090000_session_results_deny_anon_insert.sql",
+      "sha256": "3f87c8e6f71ba647ec3ff373aa0f500e883831de85c01b737bbd46eabfec617d"
+    },
+    {
+      "file": "202610090001_session_exercise_metadata.sql",
+      "sha256": "2debf060479b979b58a386d26b38a94c3f38f1e04dedb80f36df719d1d16d44f"
+    }
+  ],
+  "results": [
+    {
+      "name": "fixture matches separate roles, direct grants and enabled RLS",
+      "status": "PASS"
+    },
+    {
+      "name": "baseline permissive policy allows anonymous insertion",
+      "status": "PASS"
+    },
+    {
+      "name": "exact prepared security migration applies",
+      "status": "PASS"
+    },
+    {
+      "name": "anon direct INSERT removed; authenticated retained",
+      "status": "PASS"
+    },
+    {
+      "name": "craving_reset: anon null owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "craving_reset: anon forged owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "craving_reset: active trial own insert accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "craving_reset: subscriber own insert accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "acupressure_reset: anon null owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "acupressure_reset: anon forged owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "acupressure_reset: active trial own insert accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "acupressure_reset: subscriber own insert accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "grounding_reset: anon null owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "grounding_reset: anon forged owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "grounding_reset: active trial own insert accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "grounding_reset: subscriber own insert accepted",
+      "status": "PASS"
+    },
+    {
+      "name": "cross-account authenticated insert rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "authenticated NULL owner rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "authenticated role without simulated subject rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "expired trial insert rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "revoked entitlement insert rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "missing account insert rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "trial initialization uses actual repository function and remains usable",
+      "status": "PASS"
+    },
+    {
+      "name": "expired trial still reads own historical session only",
+      "status": "PASS"
+    },
+    {
+      "name": "authenticated cannot change own entitlement",
+      "status": "PASS"
+    },
+    {
+      "name": "restrictive RLS denies residual column INSERT grant",
+      "status": "PASS"
+    },
+    {
+      "name": "restrictive RLS denies PUBLIC INSERT grant",
+      "status": "PASS"
+    },
+    {
+      "name": "exact prepared metadata migration applies after security",
+      "status": "PASS"
+    },
+    {
+      "name": "historical rows unchanged and metadata NULL",
+      "status": "PASS"
+    },
+    {
+      "name": "metadata roundtrip duration=null, completion=null",
+      "status": "PASS"
+    },
+    {
+      "name": "metadata roundtrip duration=0, completion=false",
+      "status": "PASS"
+    },
+    {
+      "name": "metadata roundtrip duration=12.25, completion=false",
+      "status": "PASS"
+    },
+    {
+      "name": "metadata roundtrip duration=120, completion=true",
+      "status": "PASS"
+    },
+    {
+      "name": "duration -1 rejected by CHECK",
+      "status": "PASS"
+    },
+    {
+      "name": "duration NaN rejected by CHECK",
+      "status": "PASS"
+    },
+    {
+      "name": "duration Infinity rejected by CHECK",
+      "status": "PASS"
+    },
+    {
+      "name": "duration -Infinity rejected by CHECK",
+      "status": "PASS"
+    },
+    {
+      "name": "old client omitting metadata still inserts with NULL fields",
+      "status": "PASS"
+    },
+    {
+      "name": "anonymous metadata insert rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "authenticated cross-owner metadata insert rejected",
+      "status": "PASS"
+    },
+    {
+      "name": "separate authenticated contexts retrieve persistent zero/false",
+      "status": "PASS"
+    },
+    {
+      "name": "security rollback restores prior anon behavior only in fixture",
+      "status": "PASS"
+    },
+    {
+      "name": "security can be reapplied and anon rejected again",
+      "status": "PASS"
+    }
+  ],
+  "passed": 43,
+  "failed": 0,
+  "limitations": [
+    "auth.uid() reads a synthetic session setting, not a verified JWT",
+    "SET LOCAL ROLE enforces real PostgreSQL privileges/RLS but does not test Supabase HTTP authentication",
+    "Base session_results schema reconstructed from known fields; production-only objects not copied",
+    "No PostgREST schema cache, token refresh, Stripe event delivery, concurrency or production migration locking tested"
+  ]
+}

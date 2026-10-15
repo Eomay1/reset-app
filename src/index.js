@@ -1,3 +1,4 @@
+import { isLocalReview } from "./review/reviewStorage";
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
@@ -9,9 +10,12 @@ import reportWebVitals from './reportWebVitals';
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
-    <AuthProvider>
+    {isLocalReview ? <>
+      <aside className="review-banner">Local review — isolated browser data. No Supabase, Stripe, or authentication requests.</aside>
+      <App />
+    </> : <AuthProvider>
       <AppRouter ResetApp={App} />
-    </AuthProvider>
+    </AuthProvider>}
   </React.StrictMode>
 );
 

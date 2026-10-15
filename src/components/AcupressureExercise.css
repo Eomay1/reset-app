@@ -102,3 +102,9 @@
   }
   .acupressure-button, .acupressure-progress span { transition: none; }
 }
+.grounding-card { max-width: 680px; text-align: center; }
+.grounding-items { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 28px; }
+.grounding-items button { min-width: 48px; min-height: 48px; }
+.acupressure-button:disabled { opacity: .5; cursor: default; transform: none; }
+
+.acupressure-finish { grid-column: 1 / -1; }
