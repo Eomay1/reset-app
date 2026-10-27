@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 
 export default function StartPage() {
   const { user, loading, signInWithOtp, verifyOtp } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const trialIntent = new URLSearchParams(location.search).get("intent") === "trial";
   const [email, setEmail] = useState(() => sessionStorage.getItem("reset_auth_email") || "");
   const [token, setToken] = useState("");
   const [codeSent, setCodeSent] = useState(false);
@@ -56,8 +57,9 @@ export default function StartPage() {
       <section className="auth-card">
         <p className="home-eyebrow">Wellness &amp; recovery</p>
         <h1>RESET</h1>
-        <h2>{codeSent ? "Enter your sign-in code" : "Sign in to continue"}</h2>
+        <h2>{codeSent ? "Enter your sign-in code" : trialIntent ? "Start your seven-day free trial" : "Sign in to continue"}</h2>
         <p>No password is needed. We’ll email you a one-time code.</p>
+        {trialIntent && <p>Trials are available to eligible accounts. Signing in again does not restart an existing or expired trial.</p>}
 
         {!codeSent ? (
           <form onSubmit={requestCode} className="auth-form">
@@ -77,6 +79,7 @@ export default function StartPage() {
 
         {message && <p role="status" className="auth-message">{message}</p>}
         {formError && <p role="alert" className="auth-error">{formError}</p>}
+        <Link to="/">Return to the RESET introduction</Link>
       </section>
     </main>
   );

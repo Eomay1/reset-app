@@ -1,0 +1,18 @@
+.onboarding { max-width: 760px; margin: 0 auto; padding: 32px 24px 64px; color: #254638; line-height: 1.65; }
+.onboarding h1 { font-size: clamp(2rem, 8vw, 3.5rem); line-height: 1.15; }
+.onboarding section { margin-top: 40px; }
+.onboarding-screenshot { width: 100%; height: auto; border-radius: 16px; }
+.onboarding-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0; align-items: center; }
+.onboarding a, .onboarding button { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 10px 18px; border-radius: 12px; }
+.onboarding a { color: #254638; }
+.onboarding button { cursor: pointer; font: inherit; border: 1px solid #658475; background: #fff; color: #254638; }
+.onboarding .onboarding-primary { background: #254638; color: #fff; text-decoration: none; border: 0; }
+.onboarding :focus-visible { outline: 3px solid #3972a4; outline-offset: 4px; }
+.preview-breath { padding: 12px 0; }
+.preview .mood-stress-scale { grid-template-columns: repeat(auto-fit, minmax(44px, 1fr)); }
+.preview .mood-stress-button { padding: 10px 4px; }
+.preview-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 16px; margin: 24px 0; }
+.preview-features article { padding: 20px; border: 1px solid #658475; border-radius: 16px; background: #fff; }
+.preview-features h3 { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .preview-breath > div { transition: none !important; transform: none !important; } }
+@media (max-width: 480px) { .onboarding-actions { flex-direction: column; align-items: stretch; } }

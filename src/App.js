@@ -1,3 +1,5 @@
+import BreathingCircle from "./components/BreathingCircle";
+import RatingScreen from "./components/RatingScreen";
 import { appStorage as localStorage, isLocalReview, useMockServices } from "./review/reviewStorage";
 import { upsertUserSession } from "./history/resetHistoryStorage";
 import { INTERVENTIONS, interventionLabel, filterInterventions } from "./interventions/interventionTypes";
@@ -1398,40 +1400,7 @@ paddingBottom: "60px",
     {/* RESET */}
     {step === "reset" && (
       <div>
-        <div
-  style={{
-    width: "240px",
-    height: "240px",
-    borderRadius: "50%",
-    backgroundColor:
-      phase === "Inhale"
-        ? "#a8d5ba"
-        : phase === "Hold"
-        ? "#f2d8a7"
-        : "#c9d7f0",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    margin: "40px auto",
-   transform:
-  phase === "Inhale"
-    ? "scale(1.25)"
-    : phase === "Hold"
-    ? "scale(1.25)"
-    : "scale(0.65)",
-   transition: "all 4s linear",
-boxShadow: "0 0 40px rgba(0,0,0,0.15)"
-  }}
->
-  <h2 style={{ margin: 0, fontSize: "32px" }}>
-    {phase}
-  </h2>
-
-  <h1 style={{ margin: 0, fontSize: "64px" }}>
-    {timer}
-  </h1>
-</div>
+        <BreathingCircle phase={phase} timer={timer} />
 
         <button
           onClick={() => setStep("message")}
@@ -2729,26 +2698,5 @@ setTimeout(() => {
 
 </div>
 );
-}
-function RatingScreen({ title, description, value, onChange, onContinue, feedback, feedbackTone = "unchanged", min = 0 }) {
-  return (
-    <main className="craving-after-screen">
-      <div className="craving-after-container">
-        <header className="craving-after-header"><h2>{title}</h2><p>{description}</p></header>
-        <div className="mood-stress-scale">
-          {Array.from({ length: 11 - min }, (_, index) => index + min).map((number) => (
-            <button type="button" key={number} onClick={() => onChange(number)} className={`mood-stress-button ${value === number ? "mood-stress-button--selected" : ""}`} aria-pressed={value === number}>{number}</button>
-          ))}
-        </div>
-        <div className="mood-stress-labels" aria-hidden="true"><span>Not at all</span><span>Extremely</span></div>
-        {feedback && (
-          <div className={`craving-after-result craving-after-result--${feedbackTone}`} role="status">
-            <p>{feedback}</p>
-          </div>
-        )}
-        <button type="button" disabled={value === null} onClick={onContinue} className="mood-save-button">Continue</button>
-      </div>
-    </main>
-  );
 }
 export default App;

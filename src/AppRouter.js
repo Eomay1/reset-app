@@ -6,6 +6,8 @@ import AccountPage from "./pages/AccountPage";
 import StartPage from "./pages/StartPage";
 import AccessExpiredPage from "./pages/AccessExpiredPage";
 import HistoryPage from "./pages/HistoryPage";
+import WelcomePage from "./pages/WelcomePage";
+import PreviewPage from "./pages/PreviewPage";
 
 function ResetRoute({ ResetApp }) {
   const { user, refreshEntitlement } = useAuth();
@@ -23,6 +25,7 @@ export default function AppRouter({ ResetApp }) {
   return (
     <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
+        <Route path="/preview" element={<PreviewPage />} />
         <Route path="/start" element={<StartPage />} />
         <Route path="/signin" element={<StartPage />} />
         <Route path="/auth/confirm" element={<StartPage />} />
@@ -40,7 +43,7 @@ export default function AppRouter({ ResetApp }) {
         <Route path="/access-expired" element={(
           <ProtectedRoute><AccessExpiredPage /></ProtectedRoute>
         )} />
-        <Route path="/" element={<Navigate to="/app" replace />} />
+        <Route path="/" element={<WelcomePage />} />
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
     </BrowserRouter>
