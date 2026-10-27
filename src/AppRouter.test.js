@@ -75,9 +75,77 @@ test("signed-out users cannot access /app and /start loads", async () => {
   expect(screen.queryByText("Protected RESET")).not.toBeInTheDocument();
 });
 
+test("public landing and guest preview never initialize a trial or save sessions", async () => {
+  renderRouter("/");
+  expect(await screen.findByRole("heading", { name: "RESET" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("link", { name: "Try a Guided Preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start Preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "3" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  fireEvent.click(screen.getByRole("button", { name: "Finish & Rate" }));
+  fireEvent.click(screen.getByRole("button", { name: "2" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+  expect(screen.getByRole("heading", { name: "Your preview check-in" })).toBeInTheDocument();
+  expect(supabase.rpc).not.toHaveBeenCalled();
+  expect(supabase.from).not.toHaveBeenCalled();
+  expect(supabase.auth.signInWithOtp).not.toHaveBeenCalled();
+});
+
+test("trial CTA opens the existing email-code registration without starting a trial", async () => {
+  renderRouter("/start?intent=trial");
+  expect(await screen.findByRole("heading", { name: "Start your seven-day free trial" })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Email address"), { target: { value: userA.email } });
+  fireEvent.click(screen.getByRole("button", { name: "Email me a code" }));
+  expect(await screen.findByRole("heading", { name: "Enter your sign-in code" })).toBeInTheDocument();
+  expect(supabase.auth.signInWithOtp).toHaveBeenCalledWith({
+    email: userA.email, options: { shouldCreateUser: true }
+  });
+  expect(supabase.rpc).not.toHaveBeenCalled();
+});
+
 test("signed-out users cannot access /account", async () => {
   renderRouter("/account");
   expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
+});
+
+test.each([
+  "/app", "/app?step=acupressure", "/app?step=grounding", "/history", "/account", "/access-expired",
+  "/preview/acupressure", "/preview/history", "/acupressure", "/craving", "/programs", "/welcome"
+])("anonymous direct or alternate route remains protected: %s", async path => {
+  renderRouter(path);
+  expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
+  expect(screen.queryByText("Protected RESET")).not.toBeInTheDocument();
+  expect(supabase.rpc).not.toHaveBeenCalled();
+  expect(supabase.from).not.toHaveBeenCalled();
+});
+
+test("browser navigation from a completed preview to the app still requires authentication", async () => {
+  renderRouter("/preview");
+  fireEvent.click(screen.getByRole("button", { name: "Start Preview" }));
+  fireEvent.click(screen.getByRole("button", { name: "Skip this rating" }));
+  fireEvent.click(screen.getByRole("button", { name: "Finish & Rate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Skip this rating" }));
+  expect(screen.getByRole("heading", { name: "Your preview check-in" })).toBeInTheDocument();
+  await act(async () => {
+    window.history.replaceState({}, "", "/app");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
+  expect(screen.queryByText("Protected RESET")).not.toBeInTheDocument();
+  expect(supabase.rpc).not.toHaveBeenCalled();
+});
+
+test("an expired account cannot use preview navigation to enter the protected app", async () => {
+  supabase.auth.getSession.mockResolvedValue({ data: { session: { user: userA } }, error: null });
+  supabase.rpc.mockImplementation(name => Promise.resolve(name === "ensure_consumer_account"
+    ? { data: { user_id: userA.id }, error: null }
+    : { data: [entitlementRow({ effective_status: "trial_expired", has_access: false })], error: null }));
+  renderRouter("/preview");
+  await waitFor(() => expect(supabase.rpc).toHaveBeenCalledWith("get_current_consumer_entitlement"));
+  fireEvent.click(screen.getByRole("link", { name: "Start My 7-Day Free Trial" }));
+  expect(await screen.findByRole("heading", { name: "Active RESET access has ended" })).toBeInTheDocument();
+  expect(screen.queryByText("Protected RESET")).not.toBeInTheDocument();
+  expect(supabase.auth.signInWithOtp).not.toHaveBeenCalled();
 });
 
 test("OTP request uses Supabase Auth and supports resend", async () => {
