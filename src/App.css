@@ -663,6 +663,21 @@
   margin-bottom: 48px;
 }
 
+.home-trial-reminder {
+  margin: 0 0 28px;
+  padding: 16px 20px;
+  border: 1px solid #dce5de;
+  border-radius: 18px;
+  background: #f8f9fa;
+  color: #4f6154;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.home-trial-reminder p {
+  margin: 4px 0 0;
+}
+
 .home-history-scope {
   grid-column: 1 / -1;
   margin: 0 0 -6px;

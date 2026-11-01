@@ -1,10 +1,11 @@
 import BreathingCircle from "./components/BreathingCircle";
 import RatingScreen from "./components/RatingScreen";
+import TrialExpirationReminder from "./components/TrialExpirationReminder";
 import { appStorage as localStorage, isLocalReview, useMockServices } from "./review/reviewStorage";
 import { upsertUserSession } from "./history/resetHistoryStorage";
 import { INTERVENTIONS, interventionLabel, filterInterventions } from "./interventions/interventionTypes";
 import GroundingExercise from "./components/GroundingExercise";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./supabaseClient";
 import useAuthenticatedResetHistory from "./history/useAuthenticatedResetHistory";
@@ -73,9 +74,14 @@ function readSessionLog() {
 function App({
   environment = process.env.NODE_ENV,
   currentUser = null,
+  entitlement = null,
   refreshEntitlement = null,
   onAccessDenied = null
 }) {
+  const trialClock = useMemo(() => ({
+    serverNow: Date.parse(entitlement?.serverNow),
+    started: performance.now()
+  }), [entitlement]);
   const allowMockSaving = useMockServices && (isLocalReview ||
     (process.env.NODE_ENV === "test" && environment !== "production"));
   const isDevelopmentPreview =
@@ -1147,6 +1153,10 @@ paddingBottom: "60px",
             </p>
             {currentUser && <a href="/account" className="home-account-link">Account</a>}
           </header>
+
+          {currentUser && entitlement?.userId === currentUser.id && (
+            <TrialExpirationReminder entitlement={entitlement} serverClock={trialClock} />
+          )}
 
           <section
             className="home-stats-grid"

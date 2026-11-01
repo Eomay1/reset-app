@@ -10,11 +10,12 @@ import WelcomePage from "./pages/WelcomePage";
 import PreviewPage from "./pages/PreviewPage";
 
 function ResetRoute({ ResetApp }) {
-  const { user, refreshEntitlement } = useAuth();
+  const { user, entitlement, refreshEntitlement } = useAuth();
   const navigate = useNavigate();
   return (
     <ResetApp
       currentUser={user}
+      entitlement={entitlement}
       refreshEntitlement={refreshEntitlement}
       onAccessDenied={() => navigate("/access-expired", { replace: true })}
     />
