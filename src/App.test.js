@@ -947,3 +947,24 @@ test('switching accounts mid-exercise retains completed measurements under the s
   const b = JSON.parse(localStorage.getItem('pulsewell:reset-history:v2:user:user-b'));
   expect(b?.sessions || []).toEqual([]);
 });
+
+test('trial reminder appears only on the account owner dashboard', async () => {
+  const entitlement = {
+    userId: 'user-owned-uuid', entitlementStatus: 'trial', effectiveStatus: 'active_trial',
+    hasAccess: true, serverNow: '2026-10-27T12:00:00Z', trialEndsAt: '2026-10-28T18:00:00Z'
+  };
+  const { rerender } = render(<App currentUser={{ id: 'user-owned-uuid' }} entitlement={entitlement} />);
+  await settleAppEffects();
+  expect(screen.getByLabelText('Trial reminder')).toHaveTextContent('Your RESET trial ends soon');
+  rerender(<App currentUser={{ id: 'another-user' }} entitlement={entitlement} />);
+  await settleAppEffects();
+  expect(screen.queryByLabelText('Trial reminder')).not.toBeInTheDocument();
+  rerender(<App currentUser={{ id: 'user-owned-uuid' }} entitlement={entitlement} />);
+  await settleAppEffects();
+  fireEvent.click(screen.getByRole('button', { name: /Breathing RESET/i }));
+  await settleAppEffects();
+  expect(screen.queryByLabelText('Trial reminder')).not.toBeInTheDocument();
+  rerender(<App currentUser={{ id: 'another-user' }} entitlement={entitlement} />);
+  await settleAppEffects();
+  expect(screen.queryByLabelText('Trial reminder')).not.toBeInTheDocument();
+});
