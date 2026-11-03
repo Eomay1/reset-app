@@ -4,6 +4,12 @@
   functions = ".netlify/functions-generated"
 
 [[redirects]]
+  from = "/"
+  to = "https://pulsewell.orizonelabs.com/"
+  status = 302
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

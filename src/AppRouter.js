@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import EntitlementRoute from "./auth/EntitlementRoute";
 import ProtectedRoute from "./auth/ProtectedRoute";
@@ -6,8 +7,15 @@ import AccountPage from "./pages/AccountPage";
 import StartPage from "./pages/StartPage";
 import AccessExpiredPage from "./pages/AccessExpiredPage";
 import HistoryPage from "./pages/HistoryPage";
-import WelcomePage from "./pages/WelcomePage";
 import PreviewPage from "./pages/PreviewPage";
+
+function ConsumerLandingRedirect() {
+  useEffect(() => {
+    window.location.replace("https://pulsewell.orizonelabs.com/");
+  }, []);
+
+  return <main><a href="https://pulsewell.orizonelabs.com/">Continue to PulseWell</a></main>;
+}
 
 function ResetRoute({ ResetApp }) {
   const { user, entitlement, refreshEntitlement } = useAuth();
@@ -44,7 +52,7 @@ export default function AppRouter({ ResetApp }) {
         <Route path="/access-expired" element={(
           <ProtectedRoute><AccessExpiredPage /></ProtectedRoute>
         )} />
-        <Route path="/" element={<WelcomePage />} />
+        <Route path="/" element={<ConsumerLandingRedirect />} />
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
     </BrowserRouter>

@@ -75,10 +75,26 @@ test("signed-out users cannot access /app and /start loads", async () => {
   expect(screen.queryByText("Protected RESET")).not.toBeInTheDocument();
 });
 
-test("public landing and guest preview never initialize a trial or save sessions", async () => {
-  renderRouter("/");
-  expect(await screen.findByRole("heading", { name: "RESET" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("link", { name: "Try a Guided Preview" }));
+test("root redirects to the consumer site without rendering the obsolete welcome or initializing a trial", async () => {
+  const originalLocation = window.location;
+  window.history.replaceState({}, "", "/");
+  delete window.location;
+  window.location = { ...originalLocation, replace: jest.fn() };
+  try {
+    renderRouter("/");
+    await waitFor(() => expect(window.location.replace).toHaveBeenCalledWith("https://pulsewell.orizonelabs.com/"));
+    expect(screen.queryByText("A moment to pause. A way to begin again.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Try a Guided Preview" })).not.toBeInTheDocument();
+    expect(supabase.rpc).not.toHaveBeenCalled();
+    expect(supabase.from).not.toHaveBeenCalled();
+    expect(supabase.auth.signInWithOtp).not.toHaveBeenCalled();
+  } finally {
+    window.location = originalLocation;
+  }
+});
+
+test("guest preview never initializes a trial or saves sessions", async () => {
+  renderRouter("/preview");
   fireEvent.click(screen.getByRole("button", { name: "Start Preview" }));
   fireEvent.click(screen.getByRole("button", { name: "3" }));
   fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -89,6 +105,14 @@ test("public landing and guest preview never initialize a trial or save sessions
   expect(supabase.rpc).not.toHaveBeenCalled();
   expect(supabase.from).not.toHaveBeenCalled();
   expect(supabase.auth.signInWithOtp).not.toHaveBeenCalled();
+});
+
+test("existing-user sign-in remains available at /signin", async () => {
+  renderRouter("/signin");
+  expect(await screen.findByRole("heading", { name: "Sign in to continue" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+  expect(window.location.pathname).toBe("/signin");
+  expect(supabase.rpc).not.toHaveBeenCalled();
 });
 
 test("trial CTA opens the existing email-code registration without starting a trial", async () => {
